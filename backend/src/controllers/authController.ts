@@ -1,8 +1,14 @@
 import { Request, Response } from 'express';
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcrypt';
+import crypto from 'crypto';
 import User from '../models/User';
 import { AuthRequest } from '../middleware/auth';
+import { sendSuperAdminPasswordResetEmail } from '../services/emailService';
+
+const RESET_TOKEN_TTL_MINUTES = 15;
+
+const hashResetToken = (token: string) => crypto.createHash('sha256').update(token).digest('hex');
 
 export const login = async (req: Request, res: Response) => {
   try {
@@ -52,6 +58,7 @@ export const login = async (req: Request, res: Response) => {
         user: {
           id: user._id,
           name: user.name,
+          email: user.email,
           role: user.role,
           organization_id: user.organization_id,
           must_change_password: user.must_change_password
@@ -84,6 +91,85 @@ export const updatePassword = async (req: AuthRequest, res: Response) => {
     res.json({ success: true, message: 'Password updated successfully' });
   } catch (error) {
     console.error('[Update Password Error]:', error);
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+};
+
+export const forgotSuperAdminPassword = async (req: Request, res: Response) => {
+  try {
+    const { email } = req.body;
+
+    if (!email) {
+      return res.status(400).json({ success: false, message: 'Email is required' });
+    }
+
+    const normalizedEmail = String(email).trim().toLowerCase();
+    const genericResponse: any = {
+      success: true,
+      message: 'If a SuperAdmin exists with this email, reset instructions have been sent.'
+    };
+
+    const user = await User.findOne({ email: normalizedEmail, role: 'superadmin' });
+    if (!user) {
+      return res.json(genericResponse);
+    }
+
+    const token = crypto.randomInt(100000, 1000000).toString();
+    user.reset_password_token_hash = hashResetToken(token);
+    user.reset_password_expires_at = new Date(Date.now() + RESET_TOKEN_TTL_MINUTES * 60 * 1000);
+    await user.save();
+
+    await sendSuperAdminPasswordResetEmail({
+      to: normalizedEmail,
+      token,
+      name: user.name
+    });
+
+    if (process.env.NODE_ENV !== 'production') {
+      genericResponse.data = { resetToken: token };
+    }
+
+    res.json(genericResponse);
+  } catch (error) {
+    console.error('[Forgot SuperAdmin Password Error]:', error);
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+};
+
+export const resetSuperAdminPassword = async (req: Request, res: Response) => {
+  try {
+    const { email, token, newPassword } = req.body;
+
+    if (!email || !token || !newPassword) {
+      return res.status(400).json({ success: false, message: 'Email, token, and newPassword are required' });
+    }
+
+    const normalizedEmail = String(email).trim().toLowerCase();
+    const tokenHash = hashResetToken(String(token));
+
+    const user = await User.findOne({
+      email: normalizedEmail,
+      role: 'superadmin',
+      reset_password_token_hash: tokenHash,
+      reset_password_expires_at: { $gt: new Date() }
+    });
+
+    if (!user) {
+      return res.status(400).json({ success: false, message: 'Invalid or expired reset token' });
+    }
+
+    const salt = await bcrypt.genSalt(10);
+    const hashedPassword = await bcrypt.hash(newPassword, salt);
+
+    user.password = hashedPassword;
+    user.must_change_password = false;
+    user.reset_password_token_hash = null;
+    user.reset_password_expires_at = null;
+    await user.save();
+
+    res.json({ success: true, message: 'Password reset successfully' });
+  } catch (error) {
+    console.error('[Reset SuperAdmin Password Error]:', error);
     res.status(500).json({ success: false, message: 'Server error' });
   }
 };

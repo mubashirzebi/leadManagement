@@ -5,6 +5,7 @@ import { beforeAll, afterAll, afterEach } from '@jest/globals';
 let mongoServer: MongoMemoryServer;
 
 beforeAll(async () => {
+  process.env.JWT_SECRET = process.env.JWT_SECRET || 'fallback_secret';
   mongoServer = await MongoMemoryServer.create();
   const mongoUri = mongoServer.getUri();
   await mongoose.connect(mongoUri);

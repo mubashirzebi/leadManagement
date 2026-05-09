@@ -8,7 +8,7 @@ router.get('/activities', getOrgLogs);
 router.get('/', getLeads);
 router.get('/:id/logs', getLeadLogs);
 router.post('/', createLead);
-router.patch('/:id', updateLead);
 router.patch('/bulk-assign', bulkAssignLeads);
+router.patch('/:id', updateLead);
 
 export default router;
