@@ -11,9 +11,9 @@ export const createReminder = async (req: AuthRequest, res: Response) => {
     const user_id = req.user?.id;
 
     const reminder = await Reminder.create({
-      organization_id: new mongoose.Types.ObjectId(organization_id),
-      lead_id: new mongoose.Types.ObjectId(lead_id),
-      user_id: new mongoose.Types.ObjectId(user_id),
+      organization_id: new mongoose.Types.ObjectId(organization_id as string),
+      lead_id: new mongoose.Types.ObjectId(lead_id as string),
+      user_id: new mongoose.Types.ObjectId(user_id as string),
       remind_at,
       remark,
       is_sent: false
@@ -21,9 +21,9 @@ export const createReminder = async (req: AuthRequest, res: Response) => {
 
     // Log the reminder creation
     await ActivityLog.create({
-      organization_id: new mongoose.Types.ObjectId(organization_id),
-      lead_id: new mongoose.Types.ObjectId(lead_id),
-      user_id: new mongoose.Types.ObjectId(user_id),
+      organization_id: new mongoose.Types.ObjectId(organization_id as string),
+      lead_id: new mongoose.Types.ObjectId(lead_id as string),
+      user_id: new mongoose.Types.ObjectId(user_id as string),
       type: 'reminder',
       content: `Scheduled a reminder for ${new Date(remind_at).toLocaleString()}: ${remark}`
     });

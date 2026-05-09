@@ -1,5 +1,5 @@
 import { Response } from 'express';
-import mongoose, { FilterQuery } from 'mongoose';
+import mongoose from 'mongoose';
 import Lead from '../models/Lead';
 import ActivityLog from '../models/ActivityLog';
 import { AuthRequest } from '../middleware/auth';
@@ -14,7 +14,7 @@ export const createLead = async (req: AuthRequest, res: Response) => {
     }
 
     const newLead = await Lead.create({
-      organization_id: new mongoose.Types.ObjectId(organization_id),
+      organization_id: new mongoose.Types.ObjectId(organization_id as string),
       assigned_to: null,
       name,
       mobile,
@@ -49,8 +49,8 @@ export const bulkAssignLeads = async (req: AuthRequest, res: Response) => {
 
     // Create Activity Logs for each assigned lead
     const logs = leadIds.map(id => ({
-      organization_id: new mongoose.Types.ObjectId(organization_id),
-      lead_id: new mongoose.Types.ObjectId(id),
+      organization_id: new mongoose.Types.ObjectId(organization_id as string),
+      lead_id: new mongoose.Types.ObjectId(id as string),
       user_id: new mongoose.Types.ObjectId(req.user?.id),
       type: 'assignment',
       content: 'Assigned to Staff'
@@ -77,7 +77,7 @@ export const getDashboardStats = async (req: AuthRequest, res: Response) => {
 
     // Aggregate counts for different statuses
     const stats = await Lead.aggregate([
-      { $match: { organization_id: new mongoose.Types.ObjectId(organization_id) } },
+      { $match: { organization_id: new mongoose.Types.ObjectId(organization_id as string) } },
       { $group: { _id: '$status', count: { $sum: 1 } } }
     ]);
 
@@ -105,7 +105,7 @@ export const getLeads = async (req: AuthRequest, res: Response) => {
       return res.status(403).json({ success: false, message: 'No organization linked' });
     }
 
-    const query: FilterQuery<any> = { organization_id };
+    const query: any = { organization_id };
 
     if (status) query.status = status;
     if (temperature) query.temperature = temperature;
@@ -156,7 +156,7 @@ export const updateLead = async (req: AuthRequest, res: Response) => {
 
     // Log the update
     await ActivityLog.create({
-      organization_id: new mongoose.Types.ObjectId(organization_id),
+      organization_id: new mongoose.Types.ObjectId(organization_id as string),
       lead_id: new mongoose.Types.ObjectId(id as string),
       user_id: new mongoose.Types.ObjectId(req.user?.id),
       type: 'update',
@@ -202,7 +202,7 @@ export const getOrgLogs = async (req: AuthRequest, res: Response) => {
     }
 
     const logs = await ActivityLog.find({ 
-      organization_id: new mongoose.Types.ObjectId(organization_id) 
+      organization_id: new mongoose.Types.ObjectId(organization_id as string) 
     })
       .sort({ created_at: -1 })
       .limit(10)
