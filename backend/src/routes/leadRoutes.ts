@@ -1,0 +1,14 @@
+import { Router } from 'express';
+import { createLead, getLeads, updateLead, getLeadLogs, getOrgLogs, bulkAssignLeads, getDashboardStats } from '../controllers/leadController';
+
+const router = Router();
+
+router.get('/stats', getDashboardStats);
+router.get('/activities', getOrgLogs);
+router.get('/', getLeads);
+router.get('/:id/logs', getLeadLogs);
+router.post('/', createLead);
+router.patch('/:id', updateLead);
+router.patch('/bulk-assign', bulkAssignLeads);
+
+export default router;
