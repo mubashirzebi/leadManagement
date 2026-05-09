@@ -58,7 +58,7 @@ export const getOrganizations = async (req: AuthRequest, res: Response) => {
     // Enrich each org with admin info, staff count, and lead count
     const enriched = await Promise.all(organizations.map(async (org) => {
       const [admin, staffCount, leadCount] = await Promise.all([
-        User.findOne({ organization_id: org._id, role: 'admin' }).select('name mobile created_at'),
+        User.findOne({ organization_id: org._id, role: 'admin' }).select('_id name mobile created_at'),
         User.countDocuments({ organization_id: org._id, role: 'staff' }),
         Lead.countDocuments({ organization_id: org._id }),
       ]);
@@ -68,7 +68,7 @@ export const getOrganizations = async (req: AuthRequest, res: Response) => {
         name: org.name,
         status: org.status,
         created_at: org.created_at,
-        admin: admin ? { name: admin.name, mobile: admin.mobile } : null,
+        admin: admin ? { _id: admin._id, name: admin.name, mobile: admin.mobile } : null,
         staff_count: staffCount,
         lead_count: leadCount,
       };
@@ -128,6 +128,39 @@ export const resetAdminPassword = async (req: AuthRequest, res: Response) => {
     res.json({ success: true, message: 'Password reset successfully' });
   } catch (error) {
     console.error('[Reset Admin Password Error]:', error);
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+};
+
+export const updateAdminDetails = async (req: AuthRequest, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { name, mobile } = req.body;
+
+    if (!name && !mobile) {
+      return res.status(400).json({ success: false, message: 'Name or mobile is required' });
+    }
+
+    // If mobile is being changed, check for conflicts
+    if (mobile) {
+      const existing = await User.findOne({ mobile, _id: { $ne: id } });
+      if (existing) {
+        return res.status(409).json({ success: false, message: 'This mobile number is already in use' });
+      }
+    }
+
+    const updates: any = {};
+    if (name) updates.name = name;
+    if (mobile) updates.mobile = mobile;
+
+    const user = await User.findByIdAndUpdate(id, updates, { new: true });
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    res.json({ success: true, message: 'Admin details updated successfully', data: user });
+  } catch (error) {
+    console.error('[Update Admin Details Error]:', error);
     res.status(500).json({ success: false, message: 'Server error' });
   }
 };

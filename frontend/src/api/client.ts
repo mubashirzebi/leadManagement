@@ -43,13 +43,9 @@ client.interceptors.response.use(
       return new Promise(() => {});
     }
 
-    console.error('[API] Error', {
-      url: error.config?.url,
-      method: error.config?.method,
-      status,
-      message,
-      raw: error.message,
-    });
+    // Log minimal info for debugging, but avoid passing objects to console.error
+    // which some environments catch and show as toasts
+    console.log(`[API] Error ${status} on ${error.config?.url}: ${message || error.message}`);
 
     if (status === 403 && typeof message === 'string' && message.toLowerCase().includes('suspended')) {
       await storage.setItem('account_suspended', 'true');

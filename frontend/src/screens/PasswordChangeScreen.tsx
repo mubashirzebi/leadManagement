@@ -7,17 +7,61 @@ import {
   TouchableOpacity, 
   ActivityIndicator, 
   KeyboardAvoidingView, 
-  Platform 
+  Platform,
+  Modal,
+  Pressable,
 } from 'react-native';
 import { Colors } from '../theme/colors';
 import { useAuth } from '../context/AuthContext';
 import client from '../api/client';
 
-export const PasswordChangeScreen = () => {
+interface DialogCfg {
+  visible: boolean; icon: string; title: string;
+  message: string; confirmLabel: string;
+  confirmColor: string; onConfirm: () => void;
+}
+const HIDDEN_DLG: DialogCfg = {
+  visible: false, icon: '', title: '', message: '',
+  confirmLabel: '', confirmColor: Colors.primary, onConfirm: () => {},
+};
+
+const Dialog = ({ cfg, onCancel }: { cfg: DialogCfg; onCancel: () => void }) => (
+  <Modal visible={cfg.visible} transparent animationType="fade">
+    <View style={dlgStyles.backdrop}>
+      <View style={dlgStyles.card}>
+        <Text style={dlgStyles.icon}>{cfg.icon}</Text>
+        <Text style={dlgStyles.title}>{cfg.title}</Text>
+        <Text style={dlgStyles.msg}>{cfg.message}</Text>
+        <View style={dlgStyles.row}>
+          <TouchableOpacity 
+            onPress={() => { onCancel(); cfg.onConfirm(); }}
+            style={[dlgStyles.confirm, { backgroundColor: cfg.confirmColor, width: '100%' }]}
+          >
+            <Text style={dlgStyles.confirmTxt}>{cfg.confirmLabel}</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    </View>
+  </Modal>
+);
+
+const dlgStyles = StyleSheet.create({
+  backdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.65)', justifyContent: 'center', alignItems: 'center', paddingHorizontal: 32 },
+  card:     { width: '100%', backgroundColor: Colors.surface, borderRadius: 24, padding: 28, alignItems: 'center', borderWidth: 1, borderColor: Colors.border },
+  icon:     { fontSize: 44, marginBottom: 12 },
+  title:    { fontSize: 20, fontWeight: '800', color: Colors.text, marginBottom: 8, textAlign: 'center' },
+  msg:      { fontSize: 14, color: Colors.textSecondary, textAlign: 'center', lineHeight: 20, marginBottom: 24 },
+  row:      { flexDirection: 'row', width: '100%' },
+  confirm:    { flex: 1, paddingVertical: 14, borderRadius: 14, alignItems: 'center' },
+  confirmTxt: { color: '#fff', fontWeight: '800', fontSize: 15 },
+});
+
+export const PasswordChangeScreen = ({ navigation }: { navigation: any }) => {
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [dialog, setDialog] = useState<DialogCfg>(HIDDEN_DLG);
   const { login, token, user } = useAuth();
 
   const handleUpdate = async () => {
@@ -36,9 +80,24 @@ export const PasswordChangeScreen = () => {
     try {
       const response = await client.patch('/auth/update-password', { newPassword: password });
       if (response.data.success) {
-        if (user) {
-          await login(token!, { ...user, must_change_password: false });
-        }
+        setDialog({
+          visible: true,
+          icon: '✅',
+          title: 'Password Updated',
+          message: 'Your new password has been set successfully.',
+          confirmLabel: 'Great',
+          confirmColor: Colors.success,
+          onConfirm: async () => {
+            if (user) {
+              await login(token!, { ...user, must_change_password: false });
+            }
+            if (navigation.canGoBack()) {
+              navigation.goBack();
+            } else {
+              navigation.navigate('Profile');
+            }
+          },
+        });
       } else {
         setError(response.data.message);
       }
@@ -50,10 +109,12 @@ export const PasswordChangeScreen = () => {
   };
 
   return (
-    <KeyboardAvoidingView 
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      style={styles.container}
-    >
+    <View style={{ flex: 1 }}>
+      <Dialog cfg={dialog} onCancel={() => setDialog(HIDDEN_DLG)} />
+      <KeyboardAvoidingView 
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        style={styles.container}
+      >
       <View style={styles.card}>
         <Text style={styles.title}>Secure Your Account</Text>
         <Text style={styles.subtitle}>Since this is your first login, please set a new password.</Text>
@@ -96,7 +157,8 @@ export const PasswordChangeScreen = () => {
           )}
         </TouchableOpacity>
       </View>
-    </KeyboardAvoidingView>
+      </KeyboardAvoidingView>
+    </View>
   );
 };
 

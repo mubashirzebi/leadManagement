@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useCallback } from 'react';
 import {
   StyleSheet,
   Text,
@@ -6,9 +6,56 @@ import {
   View,
   ScrollView,
   Alert,
+  Modal,
 } from 'react-native';
 import { useAuth } from '../context/AuthContext';
 import { Colors } from '../theme/colors';
+
+interface DialogCfg {
+  visible: boolean; icon: string; title: string;
+  message: string; confirmLabel: string;
+  confirmColor: string; onConfirm: () => void;
+}
+const HIDDEN_DLG: DialogCfg = {
+  visible: false, icon: '', title: '', message: '',
+  confirmLabel: '', confirmColor: Colors.primary, onConfirm: () => {},
+};
+
+const Dialog = ({ cfg, onCancel }: { cfg: DialogCfg; onCancel: () => void }) => (
+  <Modal visible={cfg.visible} transparent animationType="fade">
+    <View style={dlg.backdrop}>
+      <View style={dlg.card}>
+        <Text style={dlg.icon}>{cfg.icon}</Text>
+        <Text style={dlg.title}>{cfg.title}</Text>
+        <Text style={dlg.msg}>{cfg.message}</Text>
+        <View style={dlg.row}>
+          <TouchableOpacity style={dlg.cancel} onPress={onCancel}>
+            <Text style={dlg.cancelTxt}>Cancel</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[dlg.confirm, { backgroundColor: cfg.confirmColor }]}
+            onPress={() => { onCancel(); cfg.onConfirm(); }}
+          >
+            <Text style={dlg.confirmTxt}>{cfg.confirmLabel}</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    </View>
+  </Modal>
+);
+
+const dlg = StyleSheet.create({
+  backdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.65)', justifyContent: 'center', alignItems: 'center', paddingHorizontal: 32 },
+  card:     { width: '100%', backgroundColor: Colors.surface, borderRadius: 24, padding: 28, alignItems: 'center', borderWidth: 1, borderColor: Colors.border },
+  icon:     { fontSize: 44, marginBottom: 12 },
+  title:    { fontSize: 20, fontWeight: '800', color: Colors.text, marginBottom: 8, textAlign: 'center' },
+  msg:      { fontSize: 14, color: Colors.textSecondary, textAlign: 'center', lineHeight: 20, marginBottom: 24 },
+  row:      { flexDirection: 'row', width: '100%' },
+  cancel:   { flex: 1, paddingVertical: 14, borderRadius: 14, alignItems: 'center', backgroundColor: Colors.background, borderWidth: 1, borderColor: Colors.border, marginRight: 10 },
+  cancelTxt:  { color: Colors.textSecondary, fontWeight: '700', fontSize: 15 },
+  confirm:    { flex: 1, paddingVertical: 14, borderRadius: 14, alignItems: 'center' },
+  confirmTxt: { color: '#fff', fontWeight: '800', fontSize: 15 },
+});
 
 const roleConfig: Record<string, { label: string; color: string; emoji: string }> = {
   superadmin: { label: 'Platform Owner', color: '#a855f7', emoji: '👑' },
@@ -26,20 +73,25 @@ const InfoRow = ({ label, value }: { label: string; value: string }) => (
 export const ProfileScreen = ({ navigation }: { navigation: any }) => {
   const { user, logout } = useAuth();
   const role = roleConfig[user?.role ?? 'staff'] ?? roleConfig.staff;
+  const [dialog, setDialog] = useState<DialogCfg>(HIDDEN_DLG);
+  const closeDialog = useCallback(() => setDialog(HIDDEN_DLG), []);
 
   const handleLogout = () => {
-    Alert.alert(
-      'Confirm Logout',
-      'Are you sure you want to log out?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        { text: 'Logout', style: 'destructive', onPress: logout },
-      ]
-    );
+    setDialog({
+      visible: true,
+      icon: '↩',
+      title: 'Confirm Logout',
+      message: 'Are you sure you want to sign out of your account?',
+      confirmLabel: 'Logout',
+      confirmColor: Colors.error,
+      onConfirm: logout,
+    });
   };
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+    <View style={{ flex: 1 }}>
+      <Dialog cfg={dialog} onCancel={closeDialog} />
+      <ScrollView style={styles.container} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
       {/* ── Header ── */}
       <View style={styles.header}>
         <Text style={styles.pageTitle}>Profile</Text>
@@ -106,7 +158,8 @@ export const ProfileScreen = ({ navigation }: { navigation: any }) => {
 
       {/* ── Footer ── */}
       <Text style={styles.footer}>Real Estate CRM · v1.0.0</Text>
-    </ScrollView>
+      </ScrollView>
+    </View>
   );
 };
 

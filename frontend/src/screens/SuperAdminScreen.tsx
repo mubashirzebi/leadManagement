@@ -8,7 +8,7 @@ import { Colors } from '../theme/colors';
 import client from '../api/client';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
-interface OrgAdmin { name: string; mobile: string; }
+interface OrgAdmin { _id: string; name: string; mobile: string; }
 interface Agency {
   _id: string; name: string; status: 'active' | 'suspended';
   created_at: string; admin: OrgAdmin | null;
@@ -25,6 +25,19 @@ const HIDDEN_DLG: DialogCfg = {
 };
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
+const extractError = (err: any): string => {
+  if (typeof err === 'string') return err;
+  const msg = err.response?.data?.message || err.response?.data?.error;
+  if (typeof msg === 'string') return msg;
+  if (Array.isArray(msg)) return msg.join('\n');
+  if (err.response?.data?.errors) {
+    const e = err.response.data.errors;
+    if (Array.isArray(e)) return e.map((x: any) => x.msg || x.message || x).join('\n');
+    if (typeof e === 'object') return Object.values(e).join('\n');
+  }
+  return err.message || 'Something went wrong';
+};
+
 const fmt = (d: string) =>
   new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
 const daysSince = (d: string) =>
@@ -67,7 +80,15 @@ const dlg = StyleSheet.create({
 });
 
 // ─── Firm Card ────────────────────────────────────────────────────────────────
-const FirmCard = ({ item, onToggle }: { item: Agency; onToggle: (id: string, status: string) => void }) => {
+const FirmCard = ({ 
+  item, 
+  onToggle, 
+  onReset 
+}: { 
+  item: Agency; 
+  onToggle: (id: string, status: string) => void;
+  onReset: (adminId: string, firmName: string) => void;
+}) => {
   const [open, setOpen] = useState(false);
   const isActive = item.status === 'active';
   const initial = item.name.charAt(0).toUpperCase();
@@ -114,14 +135,26 @@ const FirmCard = ({ item, onToggle }: { item: Agency; onToggle: (id: string, sta
               </View>
             </View>
           )}
-          <TouchableOpacity
-            style={[s.toggle, { borderColor: isActive ? Colors.error + '50' : Colors.success + '50' }]}
-            onPress={() => onToggle(item._id, item.status)}
-          >
-            <Text style={[s.toggleTxt, { color: isActive ? Colors.error : Colors.success }]}>
-              {isActive ? '🔴  Suspend Firm' : '🟢  Activate Firm'}
-            </Text>
-          </TouchableOpacity>
+
+          <View style={s.actionGrid}>
+            <TouchableOpacity
+              style={[s.actionBtn, { borderColor: isActive ? Colors.error + '50' : Colors.success + '50' }]}
+              onPress={() => onToggle(item._id, item.status)}
+            >
+              <Text style={[s.actionBtnTxt, { color: isActive ? Colors.error : Colors.success }]}>
+                {isActive ? '🔴 Suspend' : '🟢 Activate'}
+              </Text>
+            </TouchableOpacity>
+
+            {item.admin && (
+              <TouchableOpacity
+                style={[s.actionBtn, { borderColor: Colors.primary + '50' }]}
+                onPress={() => onReset(item.admin!._id, item.name)}
+              >
+                <Text style={[s.actionBtnTxt, { color: Colors.primary }]}>👤 Edit Admin</Text>
+              </TouchableOpacity>
+            )}
+          </View>
         </View>
       )}
     </TouchableOpacity>
@@ -132,8 +165,13 @@ const FirmCard = ({ item, onToggle }: { item: Agency; onToggle: (id: string, sta
 export const SuperAdminScreen = ({ navigation }: { navigation: any }) => {
   const [orgs, setOrgs] = useState<Agency[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [showCreate, setShowCreate] = useState(false);
   const [creating, setCreating] = useState(false);
+  const [showEdit, setShowEdit] = useState(false);
+  const [savingEdit, setSavingEdit] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
+  const [editTarget, setEditTarget] = useState({ id: '', firmName: '', adminName: '', adminMobile: '', password: '' });
   const [newFirm, setNewFirm] = useState({ agencyName: '', adminName: '', adminMobile: '', adminPassword: '' });
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'suspended'>('all');
@@ -142,12 +180,23 @@ export const SuperAdminScreen = ({ navigation }: { navigation: any }) => {
   const [dialog, setDialog] = useState<DialogCfg>(HIDDEN_DLG);
   const closeDialog = useCallback(() => setDialog(HIDDEN_DLG), []);
 
+  const closeCreate = () => { setShowCreate(false); setDialog(HIDDEN_DLG); };
+  const closeEdit = () => { setShowEdit(false); setEditError(null); };
+
   const fetchOrgs = useCallback(async () => {
     setLoading(true);
+    setError(null);
     try {
       const res = await client.get('/superadmin/organizations');
-      if (res.data.success) setOrgs(res.data.data);
-    } catch (e) { console.error('Fetch orgs', e); }
+      if (res.data.success) {
+        setOrgs(res.data.data);
+      } else {
+        setError(res.data.message || 'Failed to load firms');
+      }
+    } catch (e) { 
+      setError(extractError(e));
+      console.error('Fetch orgs', e); 
+    }
     finally { setLoading(false); }
   }, []);
 
@@ -168,8 +217,51 @@ export const SuperAdminScreen = ({ navigation }: { navigation: any }) => {
         setDialog({ visible: true, icon: '✅', title: 'Firm Created', message: 'Share credentials with the Firm Admin.', confirmLabel: 'Done', confirmColor: Colors.success, onConfirm: () => {} });
       }
     } catch (e: any) {
-      setDialog({ visible: true, icon: '❌', title: 'Error', message: e.response?.data?.message || 'Failed to create firm.', confirmLabel: 'OK', confirmColor: Colors.error, onConfirm: () => {} });
+      setDialog({ 
+        visible: true, 
+        icon: '❌', 
+        title: 'Creation Failed', 
+        message: extractError(e), 
+        confirmLabel: 'Retry', 
+        confirmColor: Colors.error, 
+        onConfirm: () => {} 
+      });
     } finally { setCreating(false); }
+  };
+
+  const handleSaveEdit = async () => {
+    setSavingEdit(true);
+    setEditError(null);
+    try {
+      const infoRes = await client.patch(`/superadmin/users/${editTarget.id}`, { 
+        name: editTarget.adminName?.trim(), 
+        mobile: editTarget.adminMobile?.trim() 
+      });
+
+      if (!infoRes.data.success) throw new Error(infoRes.data.message);
+
+      // 2. Update Password (if provided)
+      if (editTarget.password) {
+        const passRes = await client.patch(`/superadmin/users/${editTarget.id}/reset-password`, { 
+          newPassword: editTarget.password 
+        });
+        if (!passRes.data.success) throw new Error(passRes.data.message);
+      }
+
+      setShowEdit(false);
+      setDialog({ 
+        visible: true, 
+        icon: '✅', 
+        title: 'Admin Updated', 
+        message: `${editTarget.firmName}'s admin details saved.`, 
+        confirmLabel: 'Done', 
+        confirmColor: Colors.success, 
+        onConfirm: () => fetchOrgs() 
+      });
+      setEditTarget({ id: '', firmName: '', adminName: '', adminMobile: '', password: '' });
+    } catch (e: any) {
+      setEditError(extractError(e));
+    } finally { setSavingEdit(false); }
   };
 
   const handleToggle = (id: string, current: string) => {
@@ -185,8 +277,22 @@ export const SuperAdminScreen = ({ navigation }: { navigation: any }) => {
       confirmLabel: suspending ? 'Suspend' : 'Activate',
       confirmColor: suspending ? Colors.error : Colors.success,
       onConfirm: async () => {
-        try { await client.patch(`/superadmin/organizations/${id}/status`, { status: next }); fetchOrgs(); }
-        catch (e) { console.error('Toggle failed', e); }
+        try { 
+          await client.patch(`/superadmin/organizations/${id}/status`, { status: next }); 
+          fetchOrgs(); 
+        }
+        catch (e) { 
+          console.log(`[API] Error on toggle: ${extractError(e)}`);
+          setDialog({
+            visible: true,
+            icon: '❌',
+            title: 'Action Failed',
+            message: extractError(e),
+            confirmLabel: 'OK',
+            confirmColor: Colors.error,
+            onConfirm: () => {}
+          });
+        }
       },
     });
   };
@@ -198,9 +304,11 @@ export const SuperAdminScreen = ({ navigation }: { navigation: any }) => {
   const filtered = orgs
     .filter(o => {
       const q = search.toLowerCase();
-      const matchQ = !q || o.name.toLowerCase().includes(q)
+      const matchQ = !q 
+        || o.name?.toLowerCase().includes(q)
         || (o.admin?.name?.toLowerCase().includes(q) ?? false)
         || (o.admin?.mobile?.includes(q) ?? false);
+      
       const matchS = statusFilter === 'all' || o.status === statusFilter;
       return matchQ && matchS;
     })
@@ -309,7 +417,22 @@ export const SuperAdminScreen = ({ navigation }: { navigation: any }) => {
       <FlatList
         data={filtered}
         keyExtractor={item => item._id}
-        renderItem={({ item }) => <FirmCard item={item} onToggle={handleToggle} />}
+        renderItem={({ item }) => (
+          <FirmCard 
+            item={item} 
+            onToggle={handleToggle} 
+            onReset={(adminId, firmName) => {
+              setEditTarget({ 
+                id: adminId, 
+                firmName: firmName, 
+                adminName: item.admin?.name || '', 
+                adminMobile: item.admin?.mobile || '', 
+                password: '' 
+              });
+              setShowEdit(true);
+            }} 
+          />
+        )}
         ListHeaderComponent={ListHeader}
         contentContainerStyle={s.listContent}
         keyboardShouldPersistTaps="handled"
@@ -317,22 +440,95 @@ export const SuperAdminScreen = ({ navigation }: { navigation: any }) => {
         refreshControl={<RefreshControl refreshing={loading} onRefresh={fetchOrgs} tintColor={Colors.primary} />}
         ListEmptyComponent={
           !loading ? (
-            <View style={s.empty}>
-              <Text style={s.emptyIcon}>{search || statusFilter !== 'all' ? '🔍' : '🏢'}</Text>
-              <Text style={s.emptyTxt}>{search || statusFilter !== 'all' ? 'No results found' : 'No firms yet'}</Text>
-              <Text style={s.emptySubTxt}>
-                {search || statusFilter !== 'all' ? 'Try adjusting your search or filters' : 'Tap "+ Add Firm" to get started'}
-              </Text>
-            </View>
+            error ? (
+              <View style={s.empty}>
+                <Text style={s.emptyIcon}>⚠️</Text>
+                <Text style={s.emptyTxt}>Load Failed</Text>
+                <Text style={s.emptySubTxt}>{error}</Text>
+                <TouchableOpacity style={s.retryBtn} onPress={fetchOrgs}>
+                  <Text style={s.retryBtnTxt}>Try Again</Text>
+                </TouchableOpacity>
+              </View>
+            ) : (
+              <View style={s.empty}>
+                <Text style={s.emptyIcon}>{search || statusFilter !== 'all' ? '🔍' : '🏢'}</Text>
+                <Text style={s.emptyTxt}>{search || statusFilter !== 'all' ? 'No results found' : 'No firms yet'}</Text>
+                <Text style={s.emptySubTxt}>
+                  {search || statusFilter !== 'all' ? 'Try adjusting your search or filters' : 'Tap "+ Add Firm" to get started'}
+                </Text>
+              </View>
+            )
           ) : null
         }
       />
+
+      {/* Edit Admin Modal */}
+      <Modal visible={showEdit} animationType="slide" transparent>
+        <View style={s.modalOverlay}>
+          <View style={s.modalCard}>
+            <TouchableOpacity style={s.closeModal} onPress={closeEdit}><Text style={s.closeModalTxt}>✕</Text></TouchableOpacity>
+            <Text style={s.modalTitle}>👤 Edit Admin Details</Text>
+            <Text style={[s.emptySubTxt, { marginBottom: 24 }]}>Managing {editTarget.firmName}</Text>
+            
+            {editError && (
+              <View style={s.localError}>
+                <Text style={s.localErrorTxt}>{editError}</Text>
+              </View>
+            )}
+
+            <View style={s.inputGroup}>
+              <Text style={s.inputLabel}>Admin Name</Text>
+              <TextInput
+                style={s.input}
+                placeholder="Enter full name"
+                placeholderTextColor={Colors.textSecondary}
+                value={editTarget.adminName}
+                onChangeText={v => setEditTarget(p => ({ ...p, adminName: v }))}
+              />
+            </View>
+
+            <View style={s.inputGroup}>
+              <Text style={s.inputLabel}>Mobile Number</Text>
+              <TextInput
+                style={s.input}
+                placeholder="Enter mobile number"
+                placeholderTextColor={Colors.textSecondary}
+                value={editTarget.adminMobile}
+                onChangeText={v => setEditTarget(p => ({ ...p, adminMobile: v }))}
+                keyboardType="phone-pad"
+              />
+            </View>
+
+            <View style={s.inputGroup}>
+              <Text style={s.inputLabel}>New Password (Optional)</Text>
+              <TextInput
+                style={s.input}
+                placeholder="Leave blank to keep current"
+                placeholderTextColor={Colors.textSecondary}
+                value={editTarget.password}
+                onChangeText={v => setEditTarget(p => ({ ...p, password: v }))}
+                secureTextEntry
+              />
+            </View>
+
+            <View style={s.modalActions}>
+              <TouchableOpacity style={s.cancelBtn} onPress={closeEdit}>
+                <Text style={s.cancelBtnTxt}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={s.saveBtn} onPress={handleSaveEdit} disabled={savingEdit}>
+                {savingEdit ? <ActivityIndicator color={Colors.text} /> : <Text style={s.saveBtnTxt}>Save Changes</Text>}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
 
       {/* Create Modal */}
       <Modal visible={showCreate} animationType="slide" transparent>
         <View style={s.modalOverlay}>
           <View style={s.modalCard}>
-            <Text style={s.modalTitle}>🏢 New Firm Setup</Text>
+            <TouchableOpacity style={s.closeModal} onPress={closeCreate}><Text style={s.closeModalTxt}>✕</Text></TouchableOpacity>
+            <Text style={s.modalTitle}>🏢 Register New Firm</Text>
             <ScrollView showsVerticalScrollIndicator={false}>
               {[
                 { key: 'agencyName', label: 'Firm Name *', placeholder: 'e.g. Skyline Realty', secure: false, phone: false },
@@ -354,7 +550,7 @@ export const SuperAdminScreen = ({ navigation }: { navigation: any }) => {
                 </View>
               ))}
               <View style={s.modalActions}>
-                <TouchableOpacity style={s.cancelBtn} onPress={() => setShowCreate(false)}>
+                <TouchableOpacity style={s.cancelBtn} onPress={closeCreate}>
                   <Text style={s.cancelBtnTxt}>Cancel</Text>
                 </TouchableOpacity>
                 <TouchableOpacity style={s.saveBtn} onPress={handleCreate} disabled={creating}>
@@ -439,11 +635,32 @@ const s = StyleSheet.create({
   toggle:     { borderWidth: 1, borderRadius: 12, paddingVertical: 12, alignItems: 'center', marginTop: 4 },
   toggleTxt:  { fontSize: 14, fontWeight: '700' },
 
+  actionGrid: { flexDirection: 'row', gap: 10, marginTop: 4 },
+  actionBtn:  { flex: 1, borderWidth: 1, borderRadius: 12, paddingVertical: 12, alignItems: 'center' },
+  actionBtnTxt: { fontSize: 13, fontWeight: '700' },
+
+  localError: {
+    backgroundColor: Colors.error + '15',
+    padding: 12,
+    borderRadius: 12,
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: Colors.error + '30',
+  },
+  localErrorTxt: {
+    color: Colors.error,
+    fontSize: 13,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+
   // Empty
   empty:      { alignItems: 'center', paddingVertical: 60 },
   emptyIcon:  { fontSize: 48, marginBottom: 12 },
   emptyTxt:   { fontSize: 18, fontWeight: '700', color: Colors.text, marginBottom: 6 },
   emptySubTxt: { fontSize: 14, color: Colors.textSecondary, textAlign: 'center', paddingHorizontal: 32 },
+  retryBtn:    { marginTop: 20, backgroundColor: Colors.error + '20', paddingHorizontal: 20, paddingVertical: 10, borderRadius: 10, borderWidth: 1, borderColor: Colors.error + '40' },
+  retryBtnTxt: { color: Colors.error, fontWeight: '700', fontSize: 14 },
 
   // Create Modal
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'flex-end' },
@@ -457,4 +674,6 @@ const s = StyleSheet.create({
   cancelBtnTxt: { color: Colors.textSecondary, fontWeight: '700', fontSize: 15 },
   saveBtn:      { flex: 1, paddingVertical: 16, borderRadius: 14, alignItems: 'center', backgroundColor: Colors.primary },
   saveBtnTxt:   { color: Colors.text, fontWeight: '700', fontSize: 15 },
+  closeModal:   { position: 'absolute', top: 20, right: 20, width: 32, height: 32, borderRadius: 16, backgroundColor: Colors.background, alignItems: 'center', justifyContent: 'center', zIndex: 10 },
+  closeModalTxt: { color: Colors.textSecondary, fontSize: 18, fontWeight: '300' },
 });
