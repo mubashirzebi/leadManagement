@@ -18,7 +18,7 @@ import { useAuth } from '../context/AuthContext';
 
 export const SuperAdminScreen = ({ navigation }: any) => {
   const { logout } = useAuth();
-  const [orgs, setOrgs] = useState([]);
+  const [orgs, setOrgs] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
   const [newAgency, setNewAgency] = useState({ agencyName: '', adminName: '', adminMobile: '', adminPassword: '' });
@@ -63,11 +63,14 @@ export const SuperAdminScreen = ({ navigation }: any) => {
     fetchOrgs();
   }, []);
 
+  const activeCount = orgs.filter((org) => org.status === 'active').length;
+  const suspendedCount = orgs.filter((org) => org.status === 'suspended').length;
+
   const renderOrg = ({ item }: { item: any }) => (
     <View style={styles.orgCard}>
-      <View>
+      <View style={styles.orgInfo}>
         <Text style={styles.orgName}>{item.name}</Text>
-        <Text style={styles.orgStatus}>{item.status.toUpperCase()}</Text>
+        <Text style={styles.orgStatus}>{item.status === 'active' ? 'Active Agency' : 'Suspended Agency'}</Text>
       </View>
       <TouchableOpacity 
         style={[styles.statusButton, item.status === 'suspended' ? styles.activeButton : styles.suspendButton]}
@@ -92,7 +95,8 @@ export const SuperAdminScreen = ({ navigation }: any) => {
     <View style={styles.container}>
       <View style={styles.header}>
         <View>
-          <Text style={styles.title}>SuperAdmin</Text>
+          <Text style={styles.title}>Agencies</Text>
+          <Text style={styles.subtitle}>Provision, suspend, and manage client organizations.</Text>
           <View style={styles.headerActions}>
             <TouchableOpacity onPress={() => navigation.navigate('PasswordChange')}>
               <Text style={styles.actionText}>Change Password</Text>
@@ -106,6 +110,21 @@ export const SuperAdminScreen = ({ navigation }: any) => {
         <TouchableOpacity style={styles.createBtn} onPress={() => setShowCreate(true)}>
           <Text style={styles.createBtnText}>+ Add Agency</Text>
         </TouchableOpacity>
+      </View>
+
+      <View style={styles.statsRow}>
+        <View style={styles.statCard}>
+          <Text style={styles.statValue}>{activeCount}</Text>
+          <Text style={styles.statLabel}>Active</Text>
+        </View>
+        <View style={styles.statCard}>
+          <Text style={styles.statValue}>{suspendedCount}</Text>
+          <Text style={styles.statLabel}>Suspended</Text>
+        </View>
+        <View style={styles.statCard}>
+          <Text style={styles.statValue}>{orgs.length}</Text>
+          <Text style={styles.statLabel}>Total</Text>
+        </View>
       </View>
 
       <Modal visible={showCreate} animationType="slide" transparent>
@@ -195,9 +214,37 @@ const styles = StyleSheet.create({
     padding: 24,
     paddingTop: 60,
     backgroundColor: Colors.surface,
+  },
+  subtitle: {
+    fontSize: 14,
+    color: Colors.textSecondary,
+    marginTop: 6,
+  },
+  statsRow: {
     flexDirection: 'row',
+    paddingHorizontal: 16,
+    marginTop: 16,
+    marginBottom: 4,
     justifyContent: 'space-between',
-    alignItems: 'center',
+  },
+  statCard: {
+    width: '31%',
+    backgroundColor: Colors.surface,
+    borderRadius: 16,
+    paddingVertical: 16,
+    paddingHorizontal: 14,
+  },
+  statValue: {
+    color: Colors.text,
+    fontSize: 24,
+    fontWeight: '800',
+  },
+  statLabel: {
+    color: Colors.textSecondary,
+    fontSize: 12,
+    fontWeight: '700',
+    marginTop: 6,
+    textTransform: 'uppercase',
   },
   createBtn: {
     backgroundColor: Colors.primary,
@@ -218,7 +265,7 @@ const styles = StyleSheet.create({
   headerActions: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginTop: 4,
+    marginTop: 10,
     gap: 8,
   },
   actionText: {
@@ -269,7 +316,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     marginTop: 20,
-    gap: 12,
   },
   cancelBtn: {
     flex: 1,
@@ -277,6 +323,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     borderRadius: 12,
     backgroundColor: Colors.surface,
+    marginRight: 12,
   },
   cancelBtnText: {
     color: Colors.textSecondary,
@@ -293,13 +340,9 @@ const styles = StyleSheet.create({
     color: Colors.text,
     fontWeight: '700',
   },
-  subtitle: {
-    fontSize: 14,
-    color: Colors.textSecondary,
-    marginTop: 4,
-  },
   list: {
     padding: 16,
+    paddingTop: 12,
   },
   orgCard: {
     backgroundColor: Colors.surface,
@@ -309,6 +352,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+  },
+  orgInfo: {
+    flex: 1,
+    paddingRight: 12,
   },
   orgName: {
     fontSize: 18,

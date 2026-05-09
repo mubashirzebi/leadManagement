@@ -10,6 +10,8 @@ import { LeadListScreen } from '../screens/LeadListScreen';
 import { LeadDetailScreen } from '../screens/LeadDetailScreen';
 import { AddLeadScreen } from '../screens/AddLeadScreen';
 import { SuperAdminScreen } from '../screens/SuperAdminScreen';
+import { ProfileScreen } from '../screens/ProfileScreen';
+import { SuspendedScreen } from '../screens/SuspendedScreen';
 import { View, Text } from 'react-native';
 import { Colors } from '../theme/colors';
 
@@ -38,11 +40,15 @@ const MainTabs = () => {
       }}
     >
       {user?.role === 'superadmin' ? (
-        <Tab.Screen name="Admin" component={SuperAdminScreen} />
+        <>
+          <Tab.Screen name="Agencies" component={SuperAdminScreen} />
+          <Tab.Screen name="Profile" component={ProfileScreen} />
+        </>
       ) : (
         <>
           <Tab.Screen name="Home" component={DashboardScreen} />
-          <Tab.Screen name="Leads" component={LeadListScreen} />
+          <Tab.Screen name={user?.role === 'staff' ? 'My Leads' : 'Leads'} component={LeadListScreen} />
+          <Tab.Screen name="Profile" component={ProfileScreen} />
         </>
       )}
     </Tab.Navigator>
@@ -50,7 +56,16 @@ const MainTabs = () => {
 };
 
 export const AppNavigator = () => {
-  const { token, user, isLoading } = useAuth();
+  const { token, user, isLoading, isSuspended } = useAuth();
+
+  console.log('[Nav] State', {
+    hasToken: Boolean(token),
+    isLoading,
+    isSuspended,
+    role: user?.role ?? null,
+    mustChangePassword: user?.must_change_password ?? null,
+    mustChangePasswordType: typeof user?.must_change_password,
+  });
 
   if (isLoading) {
     return (
@@ -63,13 +78,19 @@ export const AppNavigator = () => {
   return (
     <NavigationContainer>
       <Stack.Navigator screenOptions={{ headerShown: false }}>
-        {token ? (
+        {isSuspended ? (
+          <Stack.Screen name="Suspended" component={SuspendedScreen} />
+        ) : token ? (
+          user?.must_change_password ? (
+            <Stack.Screen name="PasswordChange" component={PasswordChangeScreen} />
+          ) : (
           <>
             <Stack.Screen name="Main" component={MainTabs} />
             <Stack.Screen name="LeadDetail" component={LeadDetailScreen} />
             <Stack.Screen name="AddLead" component={AddLeadScreen} />
             <Stack.Screen name="PasswordChange" component={PasswordChangeScreen} />
           </>
+          )
         ) : (
           <Stack.Screen name="Login" component={LoginScreen} />
         )}
