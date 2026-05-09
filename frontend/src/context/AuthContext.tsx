@@ -1,5 +1,6 @@
 import React, { createContext, useState, useEffect, useContext } from 'react';
 import { storage } from '../utils/storage';
+import { authEvents } from '../utils/authEvents';
 
 export interface User {
   id: string;
@@ -74,6 +75,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     await storage.removeItem('user');
     await storage.removeItem('account_suspended');
   };
+
+  // Register logout handler so axios interceptors can trigger it
+  useEffect(() => {
+    authEvents.setLogoutHandler(logout);
+  }, []);
 
   const markSuspended = async () => {
     console.warn('[Auth] Marking account as suspended');

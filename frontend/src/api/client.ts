@@ -1,5 +1,6 @@
 import axios from 'axios';
 import { storage } from '../utils/storage';
+import { authEvents } from '../utils/authEvents';
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3000/api';
 
@@ -32,6 +33,16 @@ client.interceptors.response.use(
   async (error) => {
     const status = error.response?.status;
     const message = error.response?.data?.message;
+
+    // Silently handle 401 — token expired or no token (e.g. during logout race)
+    if (status === 401) {
+      console.warn('[API] 401 received — triggering logout silently');
+      authEvents.triggerLogout();
+      // Return a never-resolving promise so the calling screen's catch block
+      // never receives an error to display to the user
+      return new Promise(() => {});
+    }
+
     console.error('[API] Error', {
       url: error.config?.url,
       method: error.config?.method,

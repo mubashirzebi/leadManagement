@@ -48,17 +48,18 @@ export const LoginScreen = () => {
   return (
     <KeyboardAvoidingView
       style={styles.container}
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      keyboardVerticalOffset={Platform.OS === 'ios' ? 24 : 0}
+      behavior="padding"
+      keyboardVerticalOffset={Platform.OS === 'ios' ? 24 : 80}
     >
       <ScrollView
         contentContainerStyle={styles.scrollContent}
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
+        bounces={false}
       >
         <View style={styles.heroBlock}>
           <Text style={styles.eyebrow}>Lead Management CRM</Text>
-          <Text style={styles.title}>Access your agency workspace</Text>
+          <Text style={styles.title}>Access your firm workspace</Text>
           <Text style={styles.subtitle}>Use the mobile number and password issued by your administrator.</Text>
         </View>
 
@@ -123,7 +124,8 @@ const styles = StyleSheet.create({
     flexGrow: 1,
     justifyContent: 'center',
     paddingHorizontal: 20,
-    paddingVertical: 32,
+    paddingTop: 32,
+    paddingBottom: 60,
   },
   heroBlock: {
     marginBottom: 24,

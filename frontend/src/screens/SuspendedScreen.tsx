@@ -17,7 +17,7 @@ export const SuspendedScreen = () => {
         <Text style={styles.eyebrow}>Account Suspended</Text>
         <Text style={styles.title}>Access is temporarily unavailable</Text>
         <Text style={styles.message}>
-          Your agency's account has been suspended. Please contact the system administrator to resume access.
+          Your firm's account has been suspended. Please contact the system administrator to resume access.
         </Text>
         <TouchableOpacity style={styles.button} onPress={handleExit}>
           <Text style={styles.buttonText}>Return to Login</Text>

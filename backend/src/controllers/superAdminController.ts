@@ -2,6 +2,7 @@ import { Response } from 'express';
 import bcrypt from 'bcrypt';
 import Organization from '../models/Organization';
 import User from '../models/User';
+import Lead from '../models/Lead';
 import { AuthRequest } from '../middleware/auth';
 
 export const createOrganization = async (req: AuthRequest, res: Response) => {
@@ -53,12 +54,33 @@ export const createOrganization = async (req: AuthRequest, res: Response) => {
 export const getOrganizations = async (req: AuthRequest, res: Response) => {
   try {
     const organizations = await Organization.find().sort({ created_at: -1 });
-    res.json({ success: true, data: organizations });
+
+    // Enrich each org with admin info, staff count, and lead count
+    const enriched = await Promise.all(organizations.map(async (org) => {
+      const [admin, staffCount, leadCount] = await Promise.all([
+        User.findOne({ organization_id: org._id, role: 'admin' }).select('name mobile created_at'),
+        User.countDocuments({ organization_id: org._id, role: 'staff' }),
+        Lead.countDocuments({ organization_id: org._id }),
+      ]);
+
+      return {
+        _id: org._id,
+        name: org.name,
+        status: org.status,
+        created_at: org.created_at,
+        admin: admin ? { name: admin.name, mobile: admin.mobile } : null,
+        staff_count: staffCount,
+        lead_count: leadCount,
+      };
+    }));
+
+    res.json({ success: true, data: enriched });
   } catch (error) {
     console.error('[Get Organizations Error]:', error);
     res.status(500).json({ success: false, message: 'Server error' });
   }
 };
+
 
 export const updateOrganizationStatus = async (req: AuthRequest, res: Response) => {
   try {

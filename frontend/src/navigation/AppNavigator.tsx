@@ -18,31 +18,57 @@ import { Colors } from '../theme/colors';
 const Stack = createStackNavigator();
 const Tab = createBottomTabNavigator();
 
+const TAB_ICONS: Record<string, { active: string; inactive: string }> = {
+  Firms:         { active: '🏢', inactive: '🏢' },
+  'My Account':  { active: '👤', inactive: '👤' },
+  Home:          { active: '⚡', inactive: '⚡' },
+  Leads:         { active: '📋', inactive: '📋' },
+  'My Leads':    { active: '📋', inactive: '📋' },
+  Profile:       { active: '👤', inactive: '👤' },
+};
+
 const MainTabs = () => {
   const { user } = useAuth();
   return (
     <Tab.Navigator
-      screenOptions={{
+      screenOptions={({ route }) => ({
         headerShown: false,
         tabBarStyle: {
           backgroundColor: Colors.surface,
-          borderTopWidth: 0,
-          height: 70,
-          paddingBottom: 12,
+          borderTopWidth: 1,
+          borderTopColor: Colors.border,
+          height: 72,
+          paddingBottom: 10,
+          paddingTop: 8,
         },
         tabBarActiveTintColor: Colors.primary,
         tabBarInactiveTintColor: Colors.textSecondary,
         tabBarLabelStyle: {
-          fontSize: 12,
+          fontSize: 11,
           fontWeight: '700',
-          marginBottom: 4,
+          marginTop: 2,
         },
-      }}
+        tabBarIcon: ({ focused }) => {
+          const icons = TAB_ICONS[route.name] ?? { active: '●', inactive: '○' };
+          return (
+            <View style={{
+              alignItems: 'center',
+              justifyContent: 'center',
+              width: 36,
+              height: 28,
+              borderRadius: 8,
+              backgroundColor: focused ? Colors.primary + '20' : 'transparent',
+            }}>
+              <Text style={{ fontSize: 16 }}>{focused ? icons.active : icons.inactive}</Text>
+            </View>
+          );
+        },
+      })}
     >
       {user?.role === 'superadmin' ? (
         <>
-          <Tab.Screen name="Agencies" component={SuperAdminScreen} />
-          <Tab.Screen name="Profile" component={ProfileScreen} />
+          <Tab.Screen name="Firms" component={SuperAdminScreen} />
+          <Tab.Screen name="My Account" component={ProfileScreen} />
         </>
       ) : (
         <>
@@ -54,6 +80,7 @@ const MainTabs = () => {
     </Tab.Navigator>
   );
 };
+
 
 export const AppNavigator = () => {
   const { token, user, isLoading, isSuspended } = useAuth();
