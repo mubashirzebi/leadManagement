@@ -12,6 +12,7 @@ import { AddLeadScreen } from '../screens/AddLeadScreen';
 import { SuperAdminScreen } from '../screens/SuperAdminScreen';
 import { ProfileScreen } from '../screens/ProfileScreen';
 import { SuspendedScreen } from '../screens/SuspendedScreen';
+import { TeamManagementScreen } from '../screens/TeamManagementScreen';
 import { View, Text } from 'react-native';
 import { Colors } from '../theme/colors';
 
@@ -24,6 +25,7 @@ const TAB_ICONS: Record<string, { active: string; inactive: string }> = {
   Home:          { active: '⚡', inactive: '⚡' },
   Leads:         { active: '📋', inactive: '📋' },
   'My Leads':    { active: '📋', inactive: '📋' },
+  Team:          { active: '👥', inactive: '👥' },
   Profile:       { active: '👤', inactive: '👤' },
 };
 
@@ -74,6 +76,7 @@ const MainTabs = () => {
         <>
           <Tab.Screen name="Home" component={DashboardScreen} />
           <Tab.Screen name={user?.role === 'staff' ? 'My Leads' : 'Leads'} component={LeadListScreen} />
+          {user?.role === 'admin' && <Tab.Screen name="Team" component={TeamManagementScreen} />}
           <Tab.Screen name="Profile" component={ProfileScreen} />
         </>
       )}
@@ -111,12 +114,13 @@ export const AppNavigator = () => {
           user?.must_change_password ? (
             <Stack.Screen name="PasswordChange" component={PasswordChangeScreen} />
           ) : (
-          <>
-            <Stack.Screen name="Main" component={MainTabs} />
-            <Stack.Screen name="LeadDetail" component={LeadDetailScreen} />
-            <Stack.Screen name="AddLead" component={AddLeadScreen} />
-            <Stack.Screen name="PasswordChange" component={PasswordChangeScreen} />
-          </>
+            <>
+              <Stack.Screen name="Main" component={MainTabs} />
+              <Stack.Screen name="LeadDetail" component={LeadDetailScreen} />
+              <Stack.Screen name="AddLead" component={AddLeadScreen} />
+              {/* Optional: keep PasswordChange in stack for manual changes */}
+              <Stack.Screen name="PasswordChange" component={PasswordChangeScreen} />
+            </>
           )
         ) : (
           <Stack.Screen name="Login" component={LoginScreen} />

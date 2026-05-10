@@ -3,10 +3,12 @@ import jwt from 'jsonwebtoken';
 import bcrypt from 'bcrypt';
 import crypto from 'crypto';
 import User from '../models/User';
+import Organization from '../models/Organization';
 import { AuthRequest } from '../middleware/auth';
 import { sendSuperAdminPasswordResetEmail } from '../services/emailService';
 
 const RESET_TOKEN_TTL_MINUTES = 15;
+const generateWebhookToken = () => crypto.randomBytes(24).toString('hex');
 
 const hashResetToken = (token: string) => crypto.createHash('sha256').update(token).digest('hex');
 
@@ -171,6 +173,108 @@ export const resetSuperAdminPassword = async (req: Request, res: Response) => {
     res.json({ success: true, message: 'Password reset successfully' });
   } catch (error) {
     console.error('[Reset SuperAdmin Password Error]:', error);
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+};
+
+export const updateMyOrganization = async (req: AuthRequest, res: Response) => {
+  try {
+    const orgId = req.user?.organization_id;
+    const { meta_config, google_key } = req.body;
+
+    if (req.user?.role !== 'admin') {
+      return res.status(403).json({ success: false, message: 'Only Admins can manage integrations' });
+    }
+
+    if (!orgId) {
+      return res.status(400).json({ success: false, message: 'No organization linked' });
+    }
+
+    const updates: any = {};
+    if (meta_config) updates.meta_config = meta_config;
+    if (google_key !== undefined) updates.google_key = google_key;
+
+    const org = await Organization.findByIdAndUpdate(orgId, updates, { new: true });
+    if (org && !org.webhook_token) {
+      org.webhook_token = generateWebhookToken();
+      await org.save();
+    }
+    
+    res.json({ success: true, message: 'Organization updated successfully', data: org });
+  } catch (error) {
+    console.error('[Update My Org Error]:', error);
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+};
+
+export const getMyOrganization = async (req: AuthRequest, res: Response) => {
+  try {
+    const orgId = req.user?.organization_id;
+    if (!orgId) {
+      return res.status(400).json({ success: false, message: 'No organization linked' });
+    }
+    const org = await Organization.findById(orgId);
+    res.json({ success: true, data: org });
+  } catch (error) {
+    console.error('[Get My Org Error]:', error);
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+};
+
+// Exchange short-lived Facebook token → fetch admin's Pages list
+export const exchangeMetaToken = async (req: AuthRequest, res: Response) => {
+  try {
+    const { access_token } = req.body;
+    const APP_ID = process.env.META_APP_ID;
+    const APP_SECRET = process.env.META_APP_SECRET;
+
+    if (req.user?.role !== 'admin') {
+      return res.status(403).json({ success: false, message: 'Only Admins can connect Meta pages' });
+    }
+
+    if (!access_token) {
+      return res.status(400).json({ success: false, message: 'Missing access_token' });
+    }
+    if (!APP_ID || !APP_SECRET) {
+      return res.status(500).json({ success: false, message: 'Meta app not configured' });
+    }
+
+    // Step 1: Exchange short-lived token for long-lived token
+    console.log('[Meta] Exchanging token...');
+    const longLivedUrl = `https://graph.facebook.com/v19.0/oauth/access_token?grant_type=fb_exchange_token&client_id=${APP_ID}&client_secret=${APP_SECRET}&fb_exchange_token=${access_token}`;
+    const llResponse = await fetch(longLivedUrl);
+    const llData: any = await llResponse.json();
+
+    if (!llResponse.ok || !llData.access_token) {
+      console.error('[Meta Exchange Error Step 1]:', JSON.stringify(llData, null, 2));
+      return res.status(400).json({ success: false, message: llData.error?.message || 'Token exchange failed' });
+    }
+
+    const longLivedToken = llData.access_token;
+    console.log('[Meta] Token exchanged successfully.');
+
+    // Step 2: Fetch the list of Pages this user manages
+    console.log('[Meta] Fetching pages...');
+    const pagesUrl = `https://graph.facebook.com/v19.0/me/accounts?access_token=${longLivedToken}&fields=id,name,access_token,category`;
+    const pagesResponse = await fetch(pagesUrl);
+    const pagesData: any = await pagesResponse.json();
+
+    if (!pagesResponse.ok || !pagesData.data) {
+      console.error('[Meta Exchange Error Step 2]:', JSON.stringify(pagesData, null, 2));
+      return res.status(400).json({ success: false, message: 'Could not fetch pages' });
+    }
+
+    console.log(`[Meta] Successfully fetched ${pagesData.data.length} pages.`);
+
+    res.json({ 
+      success: true, 
+      data: { 
+        pages: pagesData.data,
+        user_token: longLivedToken 
+      } 
+    });
+  } catch (error) {
+    console.error('[Meta Exchange Error]:', error);
     res.status(500).json({ success: false, message: 'Server error' });
   }
 };

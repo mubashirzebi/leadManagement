@@ -23,10 +23,12 @@ export const DashboardScreen = () => {
   const [stats, setStats] = useState({ total: 0, new: 0, contacted: 0, qualified: 0, closed: 0 });
   const [activities, setActivities] = useState<ActivityLog[]>([]);
   const [loading, setLoading] = useState(true);
-  const { user, logout } = useAuth();
+  const [error, setError] = useState<string | null>(null);
+  const { user } = useAuth();
 
   const fetchData = async () => {
     setLoading(true);
+    setError(null);
     try {
       const [statsRes, activitiesRes] = await Promise.all([
         client.get('/leads/stats'),
@@ -34,8 +36,9 @@ export const DashboardScreen = () => {
       ]);
       if (statsRes.data.success) setStats(statsRes.data.data);
       if (activitiesRes.data.success) setActivities(activitiesRes.data.data);
-    } catch (error) {
-      console.error('Fetch dashboard data failed', error);
+    } catch (err: any) {
+      setError('Unable to connect to server. Please check your internet connection.');
+      console.log('[Dashboard] Fetch failed:', err.message);
     } finally {
       setLoading(false);
     }
@@ -52,14 +55,19 @@ export const DashboardScreen = () => {
         <RefreshControl refreshing={loading} onRefresh={fetchData} tintColor={Colors.primary} />
       }
     >
+      {error && !loading && (
+        <View style={styles.errorBanner}>
+          <Text style={styles.errorText}>⚠️ {error}</Text>
+          <TouchableOpacity onPress={fetchData} style={styles.retrySmall}>
+            <Text style={styles.retrySmallTxt}>Retry</Text>
+          </TouchableOpacity>
+        </View>
+      )}
       <View style={styles.header}>
         <View>
           <Text style={styles.welcome}>Hello, {user?.name}</Text>
           <Text style={styles.date}>{new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}</Text>
         </View>
-        <TouchableOpacity onPress={logout} style={styles.logoutButton}>
-          <Text style={styles.logoutText}>Logout</Text>
-        </TouchableOpacity>
       </View>
 
       <View style={styles.statsGrid}>
@@ -203,5 +211,34 @@ const styles = StyleSheet.create({
   placeholderText: {
     color: Colors.textSecondary,
     textAlign: 'center',
+  },
+  errorBanner: {
+    backgroundColor: Colors.error + '15',
+    margin: 16,
+    padding: 16,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: Colors.error + '30',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  errorText: {
+    color: Colors.error,
+    fontSize: 13,
+    fontWeight: '600',
+    flex: 1,
+    marginRight: 12,
+  },
+  retrySmall: {
+    backgroundColor: Colors.error,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+  },
+  retrySmallTxt: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: '700',
   },
 });

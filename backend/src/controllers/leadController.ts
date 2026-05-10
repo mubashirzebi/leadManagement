@@ -68,7 +68,7 @@ export const getDashboardStats = async (req: AuthRequest, res: Response) => {
   try {
     const organization_id = req.user?.organization_id;
 
-    if (!organization_id) {
+    if (!organization_id || !mongoose.Types.ObjectId.isValid(organization_id as string)) {
       return res.json({ 
         success: true, 
         data: { total: 0, new: 0, contacted: 0, qualified: 0, closed: 0 } 
@@ -76,8 +76,15 @@ export const getDashboardStats = async (req: AuthRequest, res: Response) => {
     }
 
     // Aggregate counts for different statuses
+    const matchQuery: any = { organization_id: new mongoose.Types.ObjectId(organization_id as string) };
+    
+    // Staff can only see their own stats
+    if (req.user?.role === 'staff') {
+      matchQuery.assigned_to = new mongoose.Types.ObjectId(req.user.id);
+    }
+
     const stats = await Lead.aggregate([
-      { $match: { organization_id: new mongoose.Types.ObjectId(organization_id as string) } },
+      { $match: matchQuery },
       { $group: { _id: '$status', count: { $sum: 1 } } }
     ]);
 
@@ -107,9 +114,15 @@ export const getLeads = async (req: AuthRequest, res: Response) => {
 
     const query: any = { organization_id };
 
+    // Staff can ONLY see leads assigned to them
+    if (req.user?.role === 'staff') {
+      query.assigned_to = new mongoose.Types.ObjectId(req.user.id);
+    } else if (assigned_to) {
+      query.assigned_to = assigned_to === 'null' ? null : assigned_to;
+    }
+
     if (status) query.status = status;
     if (temperature) query.temperature = temperature;
-    if (assigned_to) query.assigned_to = assigned_to === 'null' ? null : assigned_to;
     if (search) {
       query.$or = [
         { name: { $regex: search, $options: 'i' } },
@@ -129,6 +142,33 @@ export const getLeads = async (req: AuthRequest, res: Response) => {
   }
 };
 
+export const getLeadDetails = async (req: AuthRequest, res: Response) => {
+  try {
+    const { id } = req.params;
+    const organization_id = req.user?.organization_id;
+
+    if (!organization_id) {
+      return res.status(403).json({ success: false, message: 'No organization linked' });
+    }
+
+    const query: any = { _id: id, organization_id };
+    if (req.user?.role === 'staff') {
+      query.assigned_to = req.user.id;
+    }
+
+    const lead = await Lead.findOne(query);
+
+    if (!lead) {
+      return res.status(404).json({ success: false, message: 'Lead not found or access denied' });
+    }
+
+    res.json({ success: true, data: lead });
+  } catch (error) {
+    console.error('[Get Lead Details Error]:', error);
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+};
+
 export const updateLead = async (req: AuthRequest, res: Response) => {
   try {
     const { id } = req.params;
@@ -144,8 +184,13 @@ export const updateLead = async (req: AuthRequest, res: Response) => {
     if (temperature) updateData.temperature = temperature;
     if (assigned_to !== undefined) updateData.assigned_to = assigned_to;
 
+    const query: any = { _id: id, organization_id };
+    if (req.user?.role === 'staff') {
+      query.assigned_to = req.user.id;
+    }
+
     const lead = await Lead.findOneAndUpdate(
-      { _id: id, organization_id },
+      query,
       { $set: updateData },
       { new: true }
     );
@@ -179,6 +224,10 @@ export const getLeadLogs = async (req: AuthRequest, res: Response) => {
       return res.status(403).json({ success: false, message: 'No organization linked' });
     }
 
+    if (!mongoose.Types.ObjectId.isValid(id as string)) {
+      return res.status(400).json({ success: false, message: 'Invalid lead ID' });
+    }
+
     const logs = await ActivityLog.find({ 
       lead_id: new mongoose.Types.ObjectId(id as string), 
       organization_id 
@@ -201,9 +250,22 @@ export const getOrgLogs = async (req: AuthRequest, res: Response) => {
       return res.status(403).json({ success: false, message: 'No organization linked' });
     }
 
-    const logs = await ActivityLog.find({ 
+    if (!mongoose.Types.ObjectId.isValid(organization_id as string)) {
+      return res.status(400).json({ success: false, message: 'Invalid organization ID' });
+    }
+
+    const logQuery: any = { 
       organization_id: new mongoose.Types.ObjectId(organization_id as string) 
-    })
+    };
+
+    // Staff can only see logs of leads assigned to them
+    if (req.user?.role === 'staff') {
+      const myLeads = await Lead.find({ assigned_to: req.user.id }, '_id');
+      const leadIds = myLeads.map(l => l._id);
+      logQuery.lead_id = { $in: leadIds };
+    }
+
+    const logs = await ActivityLog.find(logQuery)
       .sort({ created_at: -1 })
       .limit(10)
       .populate('user_id', 'name')

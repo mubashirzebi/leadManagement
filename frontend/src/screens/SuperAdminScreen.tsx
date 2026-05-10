@@ -6,6 +6,7 @@ import {
 } from 'react-native';
 import { Colors } from '../theme/colors';
 import client from '../api/client';
+import { extractError } from '../utils/errorUtils';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 interface OrgAdmin { _id: string; name: string; mobile: string; }
@@ -25,18 +26,6 @@ const HIDDEN_DLG: DialogCfg = {
 };
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
-const extractError = (err: any): string => {
-  if (typeof err === 'string') return err;
-  const msg = err.response?.data?.message || err.response?.data?.error;
-  if (typeof msg === 'string') return msg;
-  if (Array.isArray(msg)) return msg.join('\n');
-  if (err.response?.data?.errors) {
-    const e = err.response.data.errors;
-    if (Array.isArray(e)) return e.map((x: any) => x.msg || x.message || x).join('\n');
-    if (typeof e === 'object') return Object.values(e).join('\n');
-  }
-  return err.message || 'Something went wrong';
-};
 
 const fmt = (d: string) =>
   new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
@@ -125,6 +114,21 @@ const FirmCard = ({
               <Text style={s.detailVal}>{fmt(item.created_at)}</Text>
             </View>
           </View>
+          <View style={s.detailRow}>
+            <Text style={s.detailIcon}>🆔</Text>
+            <View>
+              <Text style={s.detailLbl}>Organization ID</Text>
+              <Text style={s.orgIdVal}>{item._id}</Text>
+              <TouchableOpacity
+                style={s.copyIdBtn}
+                onPress={() => {
+                  Alert.alert('Organization ID', item._id);
+                }}
+              >
+                <Text style={s.copyIdBtnTxt}>Show ID</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
           {item.admin && (
             <View style={s.detailRow}>
               <Text style={s.detailIcon}>👤</Text>
@@ -171,7 +175,13 @@ export const SuperAdminScreen = ({ navigation }: { navigation: any }) => {
   const [showEdit, setShowEdit] = useState(false);
   const [savingEdit, setSavingEdit] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
-  const [editTarget, setEditTarget] = useState({ id: '', firmName: '', adminName: '', adminMobile: '', password: '' });
+  const [editTarget, setEditTarget] = useState({ 
+    id: '', 
+    firmName: '', 
+    adminName: '', 
+    adminMobile: '', 
+    password: ''
+  });
   const [newFirm, setNewFirm] = useState({ agencyName: '', adminName: '', adminMobile: '', adminPassword: '' });
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'suspended'>('all');
@@ -233,6 +243,12 @@ export const SuperAdminScreen = ({ navigation }: { navigation: any }) => {
     setSavingEdit(true);
     setEditError(null);
     try {
+      // 1. Update Org Status ONLY
+      await client.patch(`/superadmin/organizations/${editTarget.id}/status`, { 
+        status: undefined // We can still use this to update status if needed
+      });
+
+      // 2. Update Admin Info (Name/Mobile)
       const infoRes = await client.patch(`/superadmin/users/${editTarget.id}`, { 
         name: editTarget.adminName?.trim(), 
         mobile: editTarget.adminMobile?.trim() 
@@ -427,7 +443,7 @@ export const SuperAdminScreen = ({ navigation }: { navigation: any }) => {
                 firmName: firmName, 
                 adminName: item.admin?.name || '', 
                 adminMobile: item.admin?.mobile || '', 
-                password: '' 
+                password: ''
               });
               setShowEdit(true);
             }} 
@@ -476,49 +492,51 @@ export const SuperAdminScreen = ({ navigation }: { navigation: any }) => {
               </View>
             )}
 
-            <View style={s.inputGroup}>
-              <Text style={s.inputLabel}>Admin Name</Text>
-              <TextInput
-                style={s.input}
-                placeholder="Enter full name"
-                placeholderTextColor={Colors.textSecondary}
-                value={editTarget.adminName}
-                onChangeText={v => setEditTarget(p => ({ ...p, adminName: v }))}
-              />
-            </View>
+            <ScrollView showsVerticalScrollIndicator={false}>
+              <View style={s.inputGroup}>
+                <Text style={s.inputLabel}>Admin Name</Text>
+                <TextInput
+                  style={s.input}
+                  placeholder="Enter full name"
+                  placeholderTextColor={Colors.textSecondary}
+                  value={editTarget.adminName}
+                  onChangeText={v => setEditTarget(p => ({ ...p, adminName: v }))}
+                />
+              </View>
 
-            <View style={s.inputGroup}>
-              <Text style={s.inputLabel}>Mobile Number</Text>
-              <TextInput
-                style={s.input}
-                placeholder="Enter mobile number"
-                placeholderTextColor={Colors.textSecondary}
-                value={editTarget.adminMobile}
-                onChangeText={v => setEditTarget(p => ({ ...p, adminMobile: v }))}
-                keyboardType="phone-pad"
-              />
-            </View>
+              <View style={s.inputGroup}>
+                <Text style={s.inputLabel}>Mobile Number</Text>
+                <TextInput
+                  style={s.input}
+                  placeholder="Enter mobile number"
+                  placeholderTextColor={Colors.textSecondary}
+                  value={editTarget.adminMobile}
+                  onChangeText={v => setEditTarget(p => ({ ...p, adminMobile: v }))}
+                  keyboardType="phone-pad"
+                />
+              </View>
 
-            <View style={s.inputGroup}>
-              <Text style={s.inputLabel}>New Password (Optional)</Text>
-              <TextInput
-                style={s.input}
-                placeholder="Leave blank to keep current"
-                placeholderTextColor={Colors.textSecondary}
-                value={editTarget.password}
-                onChangeText={v => setEditTarget(p => ({ ...p, password: v }))}
-                secureTextEntry
-              />
-            </View>
+              <View style={s.inputGroup}>
+                <Text style={s.inputLabel}>New Password (Optional)</Text>
+                <TextInput
+                  style={s.input}
+                  placeholder="Leave blank to keep current"
+                  placeholderTextColor={Colors.textSecondary}
+                  value={editTarget.password}
+                  onChangeText={v => setEditTarget(p => ({ ...p, password: v }))}
+                  secureTextEntry
+                />
+              </View>
 
-            <View style={s.modalActions}>
-              <TouchableOpacity style={s.cancelBtn} onPress={closeEdit}>
-                <Text style={s.cancelBtnTxt}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={s.saveBtn} onPress={handleSaveEdit} disabled={savingEdit}>
-                {savingEdit ? <ActivityIndicator color={Colors.text} /> : <Text style={s.saveBtnTxt}>Save Changes</Text>}
-              </TouchableOpacity>
-            </View>
+              <View style={s.modalActions}>
+                <TouchableOpacity style={s.cancelBtn} onPress={closeEdit}>
+                  <Text style={s.cancelBtnTxt}>Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={s.saveBtn} onPress={handleSaveEdit} disabled={savingEdit}>
+                  {savingEdit ? <ActivityIndicator color={Colors.text} /> : <Text style={s.saveBtnTxt}>Save Changes</Text>}
+                </TouchableOpacity>
+              </View>
+            </ScrollView>
           </View>
         </View>
       </Modal>
@@ -631,6 +649,9 @@ const s = StyleSheet.create({
   detailIcon: { fontSize: 16, marginRight: 12, marginTop: 2 },
   detailLbl:  { fontSize: 11, color: Colors.textSecondary, fontWeight: '700', textTransform: 'uppercase', marginBottom: 2 },
   detailVal:  { fontSize: 15, fontWeight: '600', color: Colors.text },
+  orgIdVal:   { fontSize: 13, color: Colors.text, fontFamily: 'monospace' },
+  copyIdBtn:  { alignSelf: 'flex-start', marginTop: 8, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8, backgroundColor: Colors.primary + '20', borderWidth: 1, borderColor: Colors.primary + '50' },
+  copyIdBtnTxt: { fontSize: 12, fontWeight: '700', color: Colors.primary },
   detailSub:  { fontSize: 13, color: Colors.textSecondary, marginTop: 2 },
   toggle:     { borderWidth: 1, borderRadius: 12, paddingVertical: 12, alignItems: 'center', marginTop: 4 },
   toggleTxt:  { fontSize: 14, fontWeight: '700' },
@@ -638,6 +659,9 @@ const s = StyleSheet.create({
   actionGrid: { flexDirection: 'row', gap: 10, marginTop: 4 },
   actionBtn:  { flex: 1, borderWidth: 1, borderRadius: 12, paddingVertical: 12, alignItems: 'center' },
   actionBtnTxt: { fontSize: 13, fontWeight: '700' },
+
+  divider:    { height: 1, backgroundColor: Colors.border, width: '100%' },
+  helperText: { color: Colors.textSecondary, fontSize: 11, marginTop: 4, fontStyle: 'italic' },
 
   localError: {
     backgroundColor: Colors.error + '15',

@@ -7,7 +7,11 @@ import {
   ScrollView,
   Alert,
   Modal,
+  TextInput,
+  ActivityIndicator,
 } from 'react-native';
+import client from '../api/client';
+import { useMetaConnect, MetaPage } from '../hooks/useMetaConnect';
 import { useAuth } from '../context/AuthContext';
 import { Colors } from '../theme/colors';
 
@@ -74,7 +78,68 @@ export const ProfileScreen = ({ navigation }: { navigation: any }) => {
   const { user, logout } = useAuth();
   const role = roleConfig[user?.role ?? 'staff'] ?? roleConfig.staff;
   const [dialog, setDialog] = useState<DialogCfg>(HIDDEN_DLG);
+  const [showIntegrations, setShowIntegrations] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [connectedPage, setConnectedPage] = useState<MetaPage | null>(null);
+  const [showPagePicker, setShowPagePicker] = useState(false);
+  const [saveSuccess, setSaveSuccess] = useState(false);
+  const [localError, setLocalError] = useState<string | null>(null);
+  const [orgData, setOrgData] = useState<any>(null);
+
+  const fetchProfile = useCallback(async () => {
+    try {
+      const res = await client.get('/auth/organization');
+      if (res.data.success) {
+        setOrgData(res.data.data);
+        if (res.data.data.meta_config?.page_id) {
+          // If we have a page ID, it's connected
+          setSaveSuccess(true);
+        }
+      }
+    } catch (e) {
+      console.error('[Profile] Fetch Error:', e);
+    }
+  }, []);
+
+  React.useEffect(() => {
+    fetchProfile();
+  }, [fetchProfile]);
+
+  const { connect, savePage, pages, loading: metaLoading, error: metaError, setError: setMetaError } = useMetaConnect();
+
+  // Watch for pages coming in from the Facebook connect hook
+  React.useEffect(() => {
+    if (pages && pages.length > 0) {
+      setShowPagePicker(true);
+    }
+  }, [pages]);
+
   const closeDialog = useCallback(() => setDialog(HIDDEN_DLG), []);
+
+  const openIntegrations = () => {
+    console.log('[Profile] Opening Integrations Modal');
+    setLocalError(null);
+    setSaveSuccess(false);
+    setShowIntegrations(true);
+  };
+
+  const handleConnectFacebook = async () => {
+    console.log('[Profile] Facebook Button Tapped');
+    setLocalError(null);
+    setMetaError(null);
+    await connect();
+  };
+
+  const handleSelectPage = async (page: MetaPage) => {
+    setShowPagePicker(false);
+    const ok = await savePage(page);
+    if (ok) {
+      setConnectedPage(page);
+      setSaveSuccess(true);
+    } else {
+      setLocalError('Failed to save page. Please try again.');
+    }
+  };
 
   const handleLogout = () => {
     setDialog({
@@ -119,6 +184,38 @@ export const ProfileScreen = ({ navigation }: { navigation: any }) => {
         <InfoRow label="Role" value={role.label} />
       </View>
 
+      {/* ── Integrations (Admin Only) ── */}
+      {user?.role === 'admin' && (
+        <View style={styles.actionsPanel}>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+            <Text style={styles.panelTitle}>Marketing Integrations</Text>
+            {orgData?.meta_config?.page_id && (
+              <View style={[styles.statusBadge, { backgroundColor: Colors.success + '20' }]}>
+                <View style={[styles.statusDot, { backgroundColor: Colors.success }]} />
+                <Text style={[styles.statusText, { color: Colors.success }]}>Active</Text>
+              </View>
+            )}
+          </View>
+          
+          <TouchableOpacity style={styles.actionRow} onPress={openIntegrations} activeOpacity={0.7}>
+            <View style={[styles.actionIconWrap, { backgroundColor: '#1877F220' }]}>
+              <Text style={[styles.actionIcon, { color: '#1877F2' }]}>f</Text>
+            </View>
+            <View style={styles.actionTextWrap}>
+              <Text style={styles.actionTitle}>
+                {orgData?.meta_config?.page_id ? 'Facebook Page Linked' : 'Connect Facebook Ads'}
+              </Text>
+              <Text style={styles.actionDesc}>
+                {orgData?.meta_config?.page_id 
+                  ? 'Automatic lead sync is active' 
+                  : 'Manage Facebook lead synchronization'}
+              </Text>
+            </View>
+            <Text style={styles.actionChevron}>›</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
       {/* ── Actions ── */}
       <View style={styles.actionsPanel}>
         <Text style={styles.panelTitle}>Security</Text>
@@ -159,6 +256,86 @@ export const ProfileScreen = ({ navigation }: { navigation: any }) => {
       {/* ── Footer ── */}
       <Text style={styles.footer}>Real Estate CRM · v1.0.0</Text>
       </ScrollView>
+
+      {/* ── Integrations Modal ── */}
+      <Modal visible={showIntegrations} animationType="slide" transparent>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalCard}>
+            <TouchableOpacity style={styles.closeBtn} onPress={() => setShowIntegrations(false)}>
+              <Text style={styles.closeBtnTxt}>✕</Text>
+            </TouchableOpacity>
+            
+            <Text style={styles.modalTitle}>🔗 Meta Integration</Text>
+            <Text style={styles.modalSubtitle}>Connect your Facebook Page to automatically receive leads from your ads.</Text>
+
+            {(localError || metaError) && (
+              <View style={styles.errorBox}>
+                <Text style={styles.errorText}>{localError || metaError}</Text>
+              </View>
+            )}
+
+            {saveSuccess && connectedPage ? (
+              <View style={styles.successBox}>
+                <Text style={styles.successIcon}>✅</Text>
+                <Text style={styles.successTitle}>Connected!</Text>
+                <Text style={styles.successDesc}>{connectedPage.name}</Text>
+                <Text style={styles.successSub}>Leads from this page will now flow into your CRM automatically.</Text>
+              </View>
+            ) : (
+              <TouchableOpacity
+                style={[styles.fbBtn, { opacity: metaLoading ? 0.6 : 1 }]}
+                onPress={handleConnectFacebook}
+                disabled={metaLoading}
+              >
+                {metaLoading ? (
+                  <ActivityIndicator color="#fff" />
+                ) : (
+                  <>
+                    <Text style={styles.fbBtnIcon}>🔵</Text>
+                    <Text style={styles.fbBtnTxt}>Connect with Facebook</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+            )}
+
+            <View style={styles.divider} />
+
+          </View>
+        </View>
+      </Modal>
+
+      {/* ── Page Picker Modal ── */}
+      <Modal visible={showPagePicker} animationType="slide" transparent>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalCard}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+              <Text style={styles.modalTitle}>Select a Page</Text>
+              <TouchableOpacity onPress={() => setShowPagePicker(false)}>
+                <Text style={styles.closeBtnTxt}>✕</Text>
+              </TouchableOpacity>
+            </View>
+            <Text style={styles.modalSubtitle}>Choose the Facebook Page to connect for lead capture:</Text>
+            <ScrollView showsVerticalScrollIndicator={false}>
+              {pages.map(page => (
+                <TouchableOpacity
+                  key={page.id}
+                  style={styles.pageCard}
+                  onPress={() => handleSelectPage(page)}
+                >
+                  <View style={styles.pageIconWrap}>
+                    <Text style={{ fontSize: 22 }}>📝</Text>
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.pageName}>{page.name}</Text>
+                    <Text style={styles.pageCategory}>{page.category}</Text>
+                  </View>
+                  <Text style={{ color: Colors.primary, fontSize: 22 }}>›</Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 };
@@ -296,9 +473,58 @@ const styles = StyleSheet.create({
 
   // Footer
   footer: {
-    textAlign: 'center',
-    fontSize: 12,
     color: Colors.textSecondary,
     opacity: 0.5,
+  },
+
+  // Modal Styles
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'flex-end' },
+  modalCard:    { backgroundColor: Colors.surface, borderTopLeftRadius: 32, borderTopRightRadius: 32, padding: 24, maxHeight: '90%' },
+  closeBtn:     { position: 'absolute', top: 20, right: 20, width: 32, height: 32, borderRadius: 16, backgroundColor: Colors.background, alignItems: 'center', justifyContent: 'center', zIndex: 10 },
+  closeBtnTxt:  { color: Colors.textSecondary, fontSize: 18, fontWeight: '300' },
+  modalTitle:   { fontSize: 22, fontWeight: '800', color: Colors.text, marginBottom: 8 },
+  modalSubtitle: { fontSize: 13, color: Colors.textSecondary, marginBottom: 24, lineHeight: 18 },
+  inputLabel:   { fontSize: 11, fontWeight: '700', color: Colors.textSecondary, textTransform: 'uppercase', marginBottom: 8, marginTop: 16 },
+  input:        { backgroundColor: Colors.background, borderRadius: 12, padding: 14, color: Colors.text, fontSize: 15, borderWidth: 1, borderColor: Colors.border },
+  helperText:   { color: Colors.textSecondary, fontSize: 11, marginTop: 4, fontStyle: 'italic' },
+  saveBtn:      { backgroundColor: Colors.primary, borderRadius: 14, paddingVertical: 16, alignItems: 'center', marginTop: 32, marginBottom: 20 },
+  saveBtnTxt:   { color: '#fff', fontSize: 16, fontWeight: '800' },
+  errorBox:     { backgroundColor: Colors.error + '15', padding: 12, borderRadius: 12, marginBottom: 16, borderWidth: 1, borderColor: Colors.error + '30' },
+  errorText:    { color: Colors.error, fontSize: 13, fontWeight: '600', textAlign: 'center' },
+
+  // Facebook Connect
+  fbBtn:        { backgroundColor: '#1877F2', borderRadius: 14, paddingVertical: 16, paddingHorizontal: 20, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, marginTop: 8 },
+  fbBtnIcon:    { fontSize: 20 },
+  fbBtnTxt:     { color: '#fff', fontSize: 16, fontWeight: '800' },
+  successBox:   { alignItems: 'center', paddingVertical: 24 },
+  successIcon:  { fontSize: 48, marginBottom: 8 },
+  successTitle: { fontSize: 22, fontWeight: '800', color: Colors.success, marginBottom: 4 },
+  successDesc:  { fontSize: 16, fontWeight: '700', color: Colors.text, marginBottom: 8 },
+  successSub:   { fontSize: 13, color: Colors.textSecondary, textAlign: 'center', lineHeight: 18 },
+
+  // Page Picker
+  pageCard:     { flexDirection: 'row', alignItems: 'center', backgroundColor: Colors.background, borderRadius: 14, padding: 16, marginBottom: 12, borderWidth: 1, borderColor: Colors.border },
+  pageIconWrap: { width: 44, height: 44, borderRadius: 12, backgroundColor: '#1877F220', alignItems: 'center', justifyContent: 'center', marginRight: 14 },
+  pageName:     { fontSize: 15, fontWeight: '700', color: Colors.text },
+  pageCategory: { fontSize: 12, color: Colors.textSecondary, marginTop: 2 },
+  
+  // Status Badge
+  statusBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 8,
+  },
+  statusDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    marginRight: 6,
+  },
+  statusText: {
+    fontSize: 10,
+    fontWeight: '800',
+    textTransform: 'uppercase',
   },
 });

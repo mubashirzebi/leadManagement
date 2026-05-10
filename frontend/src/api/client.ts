@@ -35,11 +35,10 @@ client.interceptors.response.use(
     const message = error.response?.data?.message;
 
     // Silently handle 401 — token expired or no token (e.g. during logout race)
-    if (status === 401) {
+    // EXCEPT for the login request itself, where we need to show the error
+    if (status === 401 && !error.config?.url?.includes('/auth/login')) {
       console.warn('[API] 401 received — triggering logout silently');
       authEvents.triggerLogout();
-      // Return a never-resolving promise so the calling screen's catch block
-      // never receives an error to display to the user
       return new Promise(() => {});
     }
 

@@ -5,6 +5,7 @@ export interface ILead extends Document {
   assigned_to: mongoose.Types.ObjectId | null;
   name: string;
   mobile: string;
+  email?: string;
   source: string;
   project?: string;
   budget?: number;
@@ -26,6 +27,7 @@ const LeadSchema: Schema = new Schema({
   assigned_to: { type: Schema.Types.ObjectId, ref: 'User', default: null },
   name: { type: String, required: true },
   mobile: { type: String, required: true },
+  email: { type: String },
   source: { type: String, default: 'Manual' },
   project: { type: String },
   budget: { type: Number },

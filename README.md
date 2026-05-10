@@ -38,10 +38,24 @@ A robust, modular monolith backend and React Native frontend for managing real e
 ### Setup
 1. Clone the repo.
 2. `cd backend && npm install`.
-3. Create `.env` from `.env.example` and add your `MONGO_URI`.
+3. Create `backend/.env` from `.env.example` and add your `MONGO_URI` and JWT value.
 4. `npm start` to run the backend.
 5. `cd ../frontend && npm install`.
 6. `npx expo start` to run the mobile app.
+
+## Meta Connection Setup
+
+1. Add Meta credentials in `backend/.env`:
+   - `META_APP_ID`
+   - `META_APP_SECRET`
+   - `META_VERIFY_TOKEN`
+2. Add frontend env in `frontend/.env`:
+   - `EXPO_PUBLIC_META_APP_ID` (same as backend app id)
+   - `EXPO_PUBLIC_API_URL` (backend base URL ending with `/api`)
+3. In Meta Developer App settings:
+   - Add OAuth redirect URI: `leadmanagement://meta-auth`
+   - Enable required permissions: `pages_show_list`, `pages_manage_ads`, `leads_retrieval`, `pages_read_engagement`
+4. Configure webhook callback URL to `https://<your-domain>/api/webhooks/meta` with verify token = `META_VERIFY_TOKEN`.
 
 ## Development Status
 - **Phase 1-5 (Backend)**: Complete (13/13 Tests Passing).

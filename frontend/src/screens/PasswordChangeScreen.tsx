@@ -88,13 +88,21 @@ export const PasswordChangeScreen = ({ navigation }: { navigation: any }) => {
           confirmLabel: 'Great',
           confirmColor: Colors.success,
           onConfirm: async () => {
+            const wasForced = user?.must_change_password;
             if (user) {
               await login(token!, { ...user, must_change_password: false });
             }
-            if (navigation.canGoBack()) {
-              navigation.goBack();
+            
+            // If it was a forced change, the navigator will auto-switch to Main.
+            // As a fallback, we try to navigate explicitly.
+            if (wasForced) {
+              try { navigation.navigate('Main'); } catch (e) { /* State switch will handle it */ }
             } else {
-              navigation.navigate('Profile');
+              if (navigation.canGoBack()) {
+                navigation.goBack();
+              } else {
+                try { navigation.navigate('Profile'); } catch (e) { console.log('Nav failed', e); }
+              }
             }
           },
         });

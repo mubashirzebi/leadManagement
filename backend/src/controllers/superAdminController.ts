@@ -1,9 +1,12 @@
 import { Response } from 'express';
 import bcrypt from 'bcrypt';
+import crypto from 'crypto';
 import Organization from '../models/Organization';
 import User from '../models/User';
 import Lead from '../models/Lead';
 import { AuthRequest } from '../middleware/auth';
+
+const generateWebhookToken = () => crypto.randomBytes(24).toString('hex');
 
 export const createOrganization = async (req: AuthRequest, res: Response) => {
   try {
@@ -20,7 +23,8 @@ export const createOrganization = async (req: AuthRequest, res: Response) => {
 
     const newOrg = await Organization.create({
       name: agencyName,
-      status: 'active'
+      status: 'active',
+      webhook_token: generateWebhookToken(),
     });
 
     const salt = await bcrypt.genSalt(10);
@@ -87,18 +91,26 @@ export const updateOrganizationStatus = async (req: AuthRequest, res: Response) 
     const { id } = req.params;
     const { status } = req.body;
 
-    if (!['active', 'suspended'].includes(status)) {
-      return res.status(400).json({ success: false, message: 'Invalid status' });
+    const updates: any = {};
+    if (status) {
+      if (!['active', 'suspended'].includes(status)) {
+        return res.status(400).json({ success: false, message: 'Invalid status' });
+      }
+      updates.status = status;
     }
 
-    const org = await Organization.findByIdAndUpdate(id, { status }, { new: true });
+    if (Object.keys(updates).length === 0) {
+      return res.status(400).json({ success: false, message: 'Nothing to update' });
+    }
+
+    const org = await Organization.findByIdAndUpdate(id, updates, { new: true });
     if (!org) {
       return res.status(404).json({ success: false, message: 'Organization not found' });
     }
 
-    res.json({ success: true, data: org, message: `Organization status updated to ${status}` });
+    res.json({ success: true, data: org, message: `Organization updated successfully` });
   } catch (error) {
-    console.error('[Update Organization Status Error]:', error);
+    console.error('[Update Organization Error]:', error);
     res.status(500).json({ success: false, message: 'Server error' });
   }
 };
