@@ -24,11 +24,11 @@ const bootstrapSuperAdmin = async () => {
     }
 
     await mongoose.connect(MONGO_URI);
-    console.log('Connected to MongoDB for SuperAdmin bootstrap...');
+    console.log('Connected to MongoDB for Platform Owner bootstrap...');
 
-    const existingSuperAdmin = await User.findOne({ role: 'superadmin' });
-    if (existingSuperAdmin) {
-      console.error('A SuperAdmin already exists. Bootstrap can only be run once.');
+    const existingPlatformOwner = await User.findOne({ role: 'platform_owner' });
+    if (existingPlatformOwner) {
+      console.error('A Platform Owner already exists. Bootstrap can only be run once.');
       process.exit(1);
     }
 
@@ -39,15 +39,15 @@ const bootstrapSuperAdmin = async () => {
       email: superEmail.toLowerCase(),
       mobile: superMobile,
       password: hashedPassword,
-      role: 'superadmin',
+      role: 'platform_owner',
       organization_id: null,
       must_change_password: false
     });
 
-    console.log(`SuperAdmin created successfully for mobile ${superMobile}`);
+    console.log(`Platform Owner created successfully for mobile ${superMobile}`);
     process.exit(0);
   } catch (error) {
-    console.error('SuperAdmin bootstrap failed:', error);
+    console.error('Platform Owner bootstrap failed:', error);
     process.exit(1);
   }
 };

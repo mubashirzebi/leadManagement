@@ -9,6 +9,8 @@
     "bootstrap-superadmin": "ts-node bootstrap-superadmin.ts",
     "reset-superadmin": "ts-node reset-superadmin.ts",
     "seed": "ts-node seed.ts",
+    "set-user-role": "ts-node set-user-role.ts",
+    "flush-crm": "ts-node flush-crm.ts",
     "build": "tsc",
     "start": "node dist/index.js"
   },

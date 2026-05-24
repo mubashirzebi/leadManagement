@@ -7,6 +7,11 @@ import { AuthRequest } from '../middleware/auth';
 export const getTeamList = async (req: AuthRequest, res: Response) => {
   try {
     const organization_id = req.user?.organization_id;
+
+    if (req.user?.role !== 'superadmin' && req.user?.role !== 'admin') {
+      return res.status(403).json({ success: false, message: 'Only managers can view assignable team members' });
+    }
+
     if (!organization_id) return res.status(403).json({ success: false, message: 'No org' });
     
     const team = await User.find({ 
@@ -21,7 +26,7 @@ export const getTeamList = async (req: AuthRequest, res: Response) => {
         const activeLeadsCount = await Lead.countDocuments({
           assigned_to: member._id,
           organization_id,
-          status: { $nin: ['Lost', 'Closed', 'Invalid Number'] }
+          status: { $nin: ['INVALID_NUMBER', 'NOT_INTERESTED'] }
         });
         return {
           ...member,

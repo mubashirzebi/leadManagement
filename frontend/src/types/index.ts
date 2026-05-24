@@ -6,9 +6,12 @@ export interface Lead {
   project?: string;
   budget?: string;
   city?: string;
-  temperature: 'Hot' | 'Warm' | 'Cold';
-  status: 'New' | 'Contacted' | 'Qualified' | 'Lost' | 'Closed';
+  heat: 'HOT' | 'WARM' | 'COLD';
+  status: 'NEW' | 'INVALID_NUMBER' | 'CALLBACK' | 'INTERESTED' | 'NOT_INTERESTED';
   assigned_to?: any;
+  remark?: string | null;
+  site_visit_booked?: boolean;
+  site_visit_at?: string | null;
   duplicateFlag?: boolean;
   facebook_page_name?: string;
   facebook_form_name?: string;

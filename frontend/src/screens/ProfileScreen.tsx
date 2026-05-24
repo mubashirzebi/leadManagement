@@ -62,9 +62,9 @@ const dlg = StyleSheet.create({
 
 const roleConfig: Record<string, { label: string; color: string; emoji: string }> = {
   platform_owner: { label: 'Platform Owner', color: '#a855f7', emoji: '👑' },
-  superadmin:     { label: 'Agency Owner',   color: Colors.primary, emoji: '🏢' },
-  admin:          { label: 'Sales Manager',  color: Colors.warning, emoji: '💼' },
-  staff:          { label: 'Sales Staff',    color: Colors.success, emoji: '👤' },
+  superadmin:     { label: 'SuperAdmin',     color: Colors.primary, emoji: '🏢' },
+  admin:          { label: 'Admin',          color: Colors.warning, emoji: '💼' },
+  staff:          { label: 'Staff',          color: Colors.success, emoji: '👤' },
 };
 
 const InfoRow = ({ label, value }: { label: string; value: string }) => (
@@ -329,8 +329,8 @@ export const ProfileScreen = ({ navigation }: { navigation: any }) => {
         <InfoRow label="Role" value={role.label} />
       </View>
  
-      {/* ── Integrations (Admin Only) ── */}
-      {user?.role === 'admin' && (
+      {/* ── Integrations (Agency Owner Only) ── */}
+      {user?.role === 'superadmin' && (
         <View style={styles.actionsPanel}>
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
             <Text style={styles.panelTitle}>Marketing Integrations</Text>

@@ -16,9 +16,9 @@ const runMigration = async () => {
     await mongoose.connect(MONGO_URI);
     console.log('Connected to MongoDB for role migration...');
 
-    // 1. Migrate global superadmin to platform_owner
+    // 1. Migrate only legacy global superadmin accounts to platform_owner
     const superAdminRes = await User.updateMany(
-      { role: 'superadmin' },
+      { role: 'superadmin', organization_id: null },
       { $set: { role: 'platform_owner' } }
     );
     console.log(`Migrated ${superAdminRes.modifiedCount} superadmin(s) -> platform_owner`);

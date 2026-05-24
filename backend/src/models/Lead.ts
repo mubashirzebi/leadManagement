@@ -10,15 +10,16 @@ export interface ILead extends Document {
   project?: string;
   budget?: number;
   city?: string;
-  status: 'New' | 'Contacted' | 'Qualified' | 'Lost' | 'Closed' | 'Imported' | 'Invalid Number';
-  temperature: 'Hot' | 'Warm' | 'Cold';
+  status: 'NEW' | 'INVALID_NUMBER' | 'CALLBACK' | 'INTERESTED' | 'NOT_INTERESTED';
+  heat: 'HOT' | 'WARM' | 'COLD';
   next_reminder_at?: Date | null;
   next_reminder_remark?: string | null;
-  visit_date?: Date | null;
-  is_revisit?: boolean;
+  site_visit_booked?: boolean;
+  site_visit_at?: Date | null;
   last_call_at?: Date | null;
   last_whatsapp_at?: Date | null;
   duplicateFlag?: boolean;
+  remark?: string | null;
   facebook_lead_id?: string | null;
   facebook_page_name?: string | null;
   facebook_form_name?: string | null;
@@ -37,15 +38,16 @@ const LeadSchema: Schema = new Schema({
   project: { type: String },
   budget: { type: Number },
   city: { type: String },
-  status: { type: String, enum: ['New', 'Contacted', 'Qualified', 'Lost', 'Closed', 'Imported', 'Invalid Number'], default: 'New' },
-  temperature: { type: String, enum: ['Hot', 'Warm', 'Cold'], default: 'Warm' },
+  status: { type: String, enum: ['NEW', 'INVALID_NUMBER', 'CALLBACK', 'INTERESTED', 'NOT_INTERESTED'], default: 'NEW' },
+  heat: { type: String, enum: ['HOT', 'WARM', 'COLD'], default: 'WARM' },
   next_reminder_at: { type: Date, default: null },
   next_reminder_remark: { type: String, default: null },
-  visit_date: { type: Date, default: null },
-  is_revisit: { type: Boolean, default: false },
+  site_visit_booked: { type: Boolean, default: false },
+  site_visit_at: { type: Date, default: null },
   last_call_at: { type: Date, default: null },
   last_whatsapp_at: { type: Date, default: null },
   duplicateFlag: { type: Boolean, default: false },
+  remark: { type: String, default: null },
   facebook_lead_id: { type: String, default: null },
   facebook_page_name: { type: String, default: null },
   facebook_form_name: { type: String, default: null },

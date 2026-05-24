@@ -7,7 +7,7 @@ export interface User {
   name: string;
   mobile: string;
   email?: string | null;
-  role: 'superadmin' | 'admin' | 'staff';
+  role: 'platform_owner' | 'superadmin' | 'admin' | 'staff';
   organization_id?: any; 
   must_change_password?: boolean;
 }

@@ -89,8 +89,8 @@ export async function syncLeadsForSinglePage(org: any, page: any): Promise<{ imp
             email: email || undefined,
             city: city || undefined,
             source: 'Meta Ads',
-            status: 'New',
-            temperature: 'Warm',
+            status: 'NEW',
+            heat: 'WARM',
             duplicateFlag: isDuplicate,
             facebook_lead_id: lead.id,
             facebook_page_name: page.page_name,
@@ -169,4 +169,3 @@ export function initMetaSyncCron(): void {
 
   console.log(`[Meta Sync] Cron job initialized — polling Facebook using expression: "${cronExpression}"`);
 }
-

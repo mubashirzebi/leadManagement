@@ -4,7 +4,7 @@ export interface IActivityLog extends Document {
   organization_id: mongoose.Types.ObjectId;
   lead_id: mongoose.Types.ObjectId;
   user_id: mongoose.Types.ObjectId;
-  type: 'status_change' | 'note' | 'call_init' | 'whatsapp_send' | 'assignment' | 'creation' | 'update' | 'reminder';
+  type: 'status_change' | 'note' | 'call_init' | 'whatsapp_send' | 'assignment' | 'creation' | 'update' | 'reminder' | 'remark';
   content: string;
   visit_date?: Date | null;
   is_revisit?: boolean | null;
@@ -15,7 +15,7 @@ const ActivityLogSchema: Schema = new Schema({
   organization_id: { type: Schema.Types.ObjectId, ref: 'Organization', required: true },
   lead_id: { type: Schema.Types.ObjectId, ref: 'Lead', required: true },
   user_id: { type: Schema.Types.ObjectId, ref: 'User', required: true },
-  type: { type: String, enum: ['status_change', 'note', 'call_init', 'whatsapp_send', 'assignment', 'creation', 'update', 'reminder'], required: true },
+  type: { type: String, enum: ['status_change', 'note', 'call_init', 'whatsapp_send', 'assignment', 'creation', 'update', 'reminder', 'remark'], required: true },
   content: { type: String, required: true },
   visit_date: { type: Date, default: null },
   is_revisit: { type: Boolean, default: null },

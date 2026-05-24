@@ -6,8 +6,11 @@ import {
   ScrollView, 
   TouchableOpacity,
   ActivityIndicator,
-  Alert
+  Alert,
+  TextInput,
+  Modal,
 } from 'react-native';
+import DateTimePicker from '@react-native-community/datetimepicker';
 import { Colors } from '../theme/colors';
 import client from '../api/client';
 import { useAuth } from '../context/AuthContext';
@@ -18,11 +21,25 @@ export const LeadDetailScreen = ({ route, navigation }: { route: any, navigation
   const [logs, setLogs] = React.useState<ActivityLog[]>([]);
   const [staff, setStaff] = React.useState<Staff[]>([]);
   const [updating, setUpdating] = React.useState(false);
+  const [activeTab, setActiveTab] = React.useState<'actions' | 'history'>('actions');
+  const [remarkDraft, setRemarkDraft] = React.useState('');
+  const [statusDialogOpen, setStatusDialogOpen] = React.useState(false);
+  const [pendingStatus, setPendingStatus] = React.useState<Lead['status'] | null>(null);
+  const [statusRemarkDraft, setStatusRemarkDraft] = React.useState('');
+  const [reminderOpen, setReminderOpen] = React.useState(false);
+  const [remindAt, setRemindAt] = React.useState<Date>(() => {
+    const d = new Date();
+    d.setMinutes(d.getMinutes() + 60);
+    return d;
+  });
+  const [reminderRemark, setReminderRemark] = React.useState('');
+  const [nativePickerMode, setNativePickerMode] = React.useState<null | 'date' | 'time'>(null);
   const { user } = useAuth();
+  const canAssignLeads = user?.role === 'admin' || user?.role === 'superadmin';
 
   const fetchStaff = async () => {
     try {
-      const response = await client.get('/users/staff');
+      const response = await client.get('/users');
       if (response.data.success) {
         setStaff(response.data.data);
       }
@@ -44,13 +61,47 @@ export const LeadDetailScreen = ({ route, navigation }: { route: any, navigation
 
   React.useEffect(() => {
     fetchLogs();
-    if (user?.role === 'admin' || user?.role === 'superadmin') {
+    if (canAssignLeads) {
       fetchStaff();
     }
-  }, []);
+  }, [canAssignLeads]);
 
-  const statuses = ['New', 'Contacted', 'Qualified', 'Lost', 'Closed'];
-  const temperatures = ['Hot', 'Warm', 'Cold'];
+  const assignableUsers = React.useMemo(() => {
+    const users: any[] = [];
+
+    // Always include "Unassigned" for managers
+    if (canAssignLeads) {
+      users.push({ _id: 'null', name: 'Unassigned', mobile: '' });
+    }
+
+    // Add team members returned by API (typically staff/admin in the org)
+    for (const member of staff as any[]) {
+      users.push(member);
+    }
+
+    // Add "Me" for self-assignment
+    if (canAssignLeads && user?.id && !users.some((member) => member._id === user.id)) {
+      users.push({ _id: user.id, name: `${user.name} (Me)`, mobile: user.mobile });
+    }
+
+    // De-dupe by _id while preserving order
+    const seen = new Set<string>();
+    return users.filter((u) => {
+      const id = String(u._id);
+      if (seen.has(id)) return false;
+      seen.add(id);
+      return true;
+    });
+  }, [staff, canAssignLeads, user?.id, user?.name, user?.mobile]);
+
+  const isAssignedTo = (userId: string) => {
+    const assigned = lead.assigned_to;
+    if (userId === 'null') return assigned === null || assigned === undefined;
+    return assigned === userId || assigned?._id === userId;
+  };
+
+  const statuses = ['NEW', 'INVALID_NUMBER', 'CALLBACK', 'INTERESTED', 'NOT_INTERESTED'];
+  const heats = ['HOT', 'WARM', 'COLD'];
 
   const handleUpdate = async (updateData: any) => {
     setUpdating(true);
@@ -67,19 +118,42 @@ export const LeadDetailScreen = ({ route, navigation }: { route: any, navigation
     }
   };
 
-  const handleCreateReminder = async (hours: number) => {
-    setUpdating(true);
-    const remindAt = new Date();
-    remindAt.setHours(remindAt.getHours() + hours);
+  const openStatusDialog = (status: Lead['status']) => {
+    setPendingStatus(status);
+    setStatusRemarkDraft('');
+    setStatusDialogOpen(true);
+  };
 
+  const closeStatusDialog = () => {
+    setStatusDialogOpen(false);
+    setPendingStatus(null);
+    setStatusRemarkDraft('');
+  };
+
+  const openReminder = () => {
+    const initial = new Date();
+    initial.setMinutes(initial.getMinutes() + 60);
+    setRemindAt(initial);
+    setReminderRemark('');
+    setReminderOpen(true);
+    setNativePickerMode('date');
+  };
+
+  const closeReminder = () => {
+    setReminderOpen(false);
+    setNativePickerMode(null);
+  };
+
+  const saveReminder = async () => {
+    setUpdating(true);
     try {
       const response = await client.post('/reminders', {
         lead_id: lead._id,
         remind_at: remindAt,
-        remark: `Follow up after ${hours} hour(s)`
+        remark: reminderRemark.trim() || 'Follow up',
       });
       if (response.data.success) {
-        Alert.alert('Success', `Reminder set for ${remindAt.toLocaleTimeString()}`);
+        closeReminder();
         fetchLogs();
       }
     } catch (error) {
@@ -90,7 +164,108 @@ export const LeadDetailScreen = ({ route, navigation }: { route: any, navigation
   };
 
   return (
-    <ScrollView style={styles.container}>
+    <ScrollView
+      style={styles.container}
+      contentContainerStyle={styles.content}
+      showsVerticalScrollIndicator={false}
+      keyboardShouldPersistTaps="handled"
+      nestedScrollEnabled
+      scrollEnabled
+    >
+      <Modal visible={statusDialogOpen} transparent animationType="fade" onRequestClose={closeStatusDialog}>
+        <View style={styles.dlgBackdrop}>
+          <View style={styles.dlgCard}>
+            <Text style={styles.dlgTitle}>Update Status</Text>
+            <Text style={styles.dlgSub}>{pendingStatus ?? ''}</Text>
+            <TextInput
+              value={statusRemarkDraft}
+              onChangeText={setStatusRemarkDraft}
+              placeholder="Optional remark..."
+              placeholderTextColor={Colors.textSecondary}
+              style={styles.remarkInput}
+              multiline
+            />
+            <View style={styles.dlgRow}>
+              <TouchableOpacity style={styles.dlgBtnGhost} onPress={closeStatusDialog} disabled={updating}>
+                <Text style={styles.dlgBtnGhostTxt}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.dlgBtnPrimary, updating && { opacity: 0.7 }]}
+                disabled={updating || !pendingStatus}
+                onPress={async () => {
+                  const next = pendingStatus;
+                  const remark = statusRemarkDraft.trim();
+                  closeStatusDialog();
+                  await handleUpdate(remark ? { status: next, remark } : { status: next });
+                }}
+              >
+                <Text style={styles.dlgBtnPrimaryTxt}>Save</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal visible={reminderOpen} transparent animationType="fade" onRequestClose={closeReminder}>
+        <View style={styles.dlgBackdrop}>
+          <View style={styles.dlgCard}>
+            <Text style={styles.dlgTitle}>Schedule Follow-up</Text>
+            <Text style={styles.dlgSub}>{remindAt.toLocaleString()}</Text>
+
+            <View style={styles.dlgRow}>
+              <TouchableOpacity style={styles.dlgBtnGhost} onPress={() => setNativePickerMode('date')} disabled={updating}>
+                <Text style={styles.dlgBtnGhostTxt}>Pick Date</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.dlgBtnGhost} onPress={() => setNativePickerMode('time')} disabled={updating}>
+                <Text style={styles.dlgBtnGhostTxt}>Pick Time</Text>
+              </TouchableOpacity>
+            </View>
+
+            <TextInput
+              value={reminderRemark}
+              onChangeText={setReminderRemark}
+              placeholder="Optional note..."
+              placeholderTextColor={Colors.textSecondary}
+              style={[styles.remarkInput, { marginTop: 12, minHeight: 80 }]}
+              multiline
+            />
+
+            <View style={styles.dlgRow}>
+              <TouchableOpacity style={styles.dlgBtnGhost} onPress={closeReminder} disabled={updating}>
+                <Text style={styles.dlgBtnGhostTxt}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[styles.dlgBtnPrimary, updating && { opacity: 0.7 }]} disabled={updating} onPress={saveReminder}>
+                <Text style={styles.dlgBtnPrimaryTxt}>Save</Text>
+              </TouchableOpacity>
+            </View>
+
+          </View>
+        </View>
+      </Modal>
+
+      {nativePickerMode ? (
+        <DateTimePicker
+          value={remindAt}
+          mode={nativePickerMode}
+          display="default"
+          is24Hour={false}
+          onChange={(_, selected) => {
+            setNativePickerMode(null);
+            if (!selected) return;
+            if (nativePickerMode === 'date') {
+              const next = new Date(remindAt);
+              next.setFullYear(selected.getFullYear(), selected.getMonth(), selected.getDate());
+              setRemindAt(next);
+              setTimeout(() => setNativePickerMode('time'), 0);
+            } else {
+              const next = new Date(remindAt);
+              next.setHours(selected.getHours(), selected.getMinutes(), 0, 0);
+              setRemindAt(next);
+            }
+          }}
+        />
+      ) : null}
+
       <View style={styles.header}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
           <Text style={styles.backText}>← Back</Text>
@@ -113,6 +288,13 @@ export const LeadDetailScreen = ({ route, navigation }: { route: any, navigation
           <Text style={styles.label}>Status</Text>
           <View style={styles.statusBadge}>
             <Text style={styles.statusText}>{lead.status}</Text>
+          </View>
+        </View>
+
+        <View style={styles.infoRow}>
+          <Text style={styles.label}>Heat</Text>
+          <View style={styles.statusBadge}>
+            <Text style={styles.statusText}>{lead.heat}</Text>
           </View>
         </View>
 
@@ -176,13 +358,23 @@ export const LeadDetailScreen = ({ route, navigation }: { route: any, navigation
         )}
       </View>
 
+      <View style={styles.tabs}>
+        <TouchableOpacity onPress={() => setActiveTab('actions')} style={[styles.tabBtn, activeTab === 'actions' && styles.tabBtnActive]}>
+          <Text style={[styles.tabTxt, activeTab === 'actions' && styles.tabTxtActive]}>Actions</Text>
+        </TouchableOpacity>
+        <TouchableOpacity onPress={() => setActiveTab('history')} style={[styles.tabBtn, activeTab === 'history' && styles.tabBtnActive]}>
+          <Text style={[styles.tabTxt, activeTab === 'history' && styles.tabTxtActive]}>History</Text>
+        </TouchableOpacity>
+      </View>
+
+      {activeTab === 'actions' && (
       <View style={styles.actionSection}>
         <Text style={styles.sectionTitle}>Update Status</Text>
         <View style={styles.statusGrid}>
           {statuses.map((s) => (
             <TouchableOpacity 
               key={s}
-              onPress={() => handleUpdate({ status: s })}
+              onPress={() => openStatusDialog(s as Lead['status'])}
               disabled={updating}
               style={[
                 styles.statusButton, 
@@ -197,64 +389,82 @@ export const LeadDetailScreen = ({ route, navigation }: { route: any, navigation
           ))}
         </View>
 
-        <Text style={[styles.sectionTitle, { marginTop: 24 }]}>Set Temperature</Text>
+        <Text style={[styles.sectionTitle, { marginTop: 24 }]}>Set Heat</Text>
         <View style={styles.statusGrid}>
-          {temperatures.map((t) => (
+          {heats.map((t) => (
             <TouchableOpacity 
               key={t}
-              onPress={() => handleUpdate({ temperature: t })}
+              onPress={() => handleUpdate({ heat: t })}
               disabled={updating}
               style={[
                 styles.statusButton, 
-                lead.temperature === t && { 
-                  backgroundColor: t === 'Hot' ? Colors.error : t === 'Warm' ? Colors.warning : Colors.primary,
+                lead.heat === t && { 
+                  backgroundColor: t === 'HOT' ? Colors.error : t === 'WARM' ? Colors.warning : Colors.primary,
                   borderColor: 'transparent'
                 }
               ]}
             >
               <Text style={[
                 styles.statusButtonText,
-                lead.temperature === t && styles.activeStatusButtonText
+                lead.heat === t && styles.activeStatusButtonText
               ]}>{t}</Text>
             </TouchableOpacity>
           ))}
         </View>
-        
-        {updating && <ActivityIndicator color={Colors.primary} style={{ marginTop: 20 }} />}
-      </View>
 
-      <View style={[styles.actionSection, { marginTop: -20 }]}>
-        <Text style={styles.sectionTitle}>Follow-up Reminders</Text>
-        <View style={styles.statusGrid}>
-          <TouchableOpacity onPress={() => handleCreateReminder(1)} style={styles.statusButton}>
-            <Text style={styles.statusButtonText}>In 1 Hour</Text>
-          </TouchableOpacity>
-          <TouchableOpacity onPress={() => handleCreateReminder(24)} style={styles.statusButton}>
-            <Text style={styles.statusButtonText}>Tomorrow</Text>
-          </TouchableOpacity>
-          <TouchableOpacity onPress={() => handleCreateReminder(48)} style={styles.statusButton}>
-            <Text style={styles.statusButtonText}>In 2 Days</Text>
-          </TouchableOpacity>
-        </View>
-      </View>
-
-      {(user?.role === 'admin' || user?.role === 'superadmin') && (
-        <View style={[styles.actionSection, { marginTop: -20 }]}>
-          <Text style={styles.sectionTitle}>Assign to Staff</Text>
-          <View style={styles.statusGrid}>
-            {staff.map((s: any) => (
-              <TouchableOpacity 
-                key={s._id} 
-                onPress={() => handleUpdate({ assigned_to: s._id })}
+        {lead.status === 'INTERESTED' && (
+          <>
+            <Text style={[styles.sectionTitle, { marginTop: 24 }]}>Site Visit</Text>
+            <View style={styles.statusGrid}>
+              <TouchableOpacity
+                onPress={() => handleUpdate({ site_visit_booked: !lead.site_visit_booked })}
                 disabled={updating}
                 style={[
                   styles.statusButton,
-                  lead.assigned_to?._id === s._id && styles.activeStatusButton
+                  lead.site_visit_booked && { backgroundColor: Colors.success, borderColor: 'transparent' }
                 ]}
               >
                 <Text style={[
                   styles.statusButtonText,
-                  lead.assigned_to?._id === s._id && styles.activeStatusButtonText
+                  lead.site_visit_booked && styles.activeStatusButtonText
+                ]}>
+                  {lead.site_visit_booked ? 'Site Visit Booked' : 'Book Site Visit'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </>
+        )}
+        
+        {updating && <ActivityIndicator color={Colors.primary} style={{ marginTop: 20 }} />}
+      </View>
+      )}
+
+      <View style={[styles.actionSection, { marginTop: -20 }]}>
+        <Text style={styles.sectionTitle}>Follow-up Reminders</Text>
+        <View style={styles.statusGrid}>
+          <TouchableOpacity onPress={openReminder} style={styles.statusButton} disabled={updating}>
+            <Text style={styles.statusButtonText}>Pick Date & Time</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+
+      {canAssignLeads && (
+        <View style={[styles.actionSection, { marginTop: -20 }]}>
+          <Text style={styles.sectionTitle}>Assign Lead</Text>
+          <View style={styles.statusGrid}>
+            {assignableUsers.map((s: any) => (
+              <TouchableOpacity 
+                key={s._id} 
+                onPress={() => handleUpdate({ assigned_to: s._id === 'null' ? null : s._id })}
+                disabled={updating}
+                style={[
+                  styles.statusButton,
+                  isAssignedTo(s._id) && styles.activeStatusButton
+                ]}
+              >
+                <Text style={[
+                  styles.statusButtonText,
+                  isAssignedTo(s._id) && styles.activeStatusButtonText
                 ]}>{s.name}</Text>
               </TouchableOpacity>
             ))}
@@ -296,6 +506,7 @@ export const LeadDetailScreen = ({ route, navigation }: { route: any, navigation
         </View>
       )}
 
+      {activeTab === 'history' && (
       <View style={styles.historySection}>
         <Text style={styles.sectionTitle}>Activity History</Text>
         {logs.map((log: any) => (
@@ -313,6 +524,7 @@ export const LeadDetailScreen = ({ route, navigation }: { route: any, navigation
           <Text style={styles.emptyLogs}>No history yet.</Text>
         )}
       </View>
+      )}
     </ScrollView>
   );
 };
@@ -321,6 +533,39 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: Colors.background,
+  },
+  content: {
+    paddingBottom: 80,
+    flexGrow: 1,
+  },
+  tabs: {
+    flexDirection: 'row',
+    marginHorizontal: 20,
+    marginBottom: 14,
+    backgroundColor: Colors.surface,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    padding: 4,
+  },
+  tabBtn: {
+    flex: 1,
+    minHeight: 38,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 8,
+  },
+  tabBtnActive: {
+    backgroundColor: Colors.primary,
+  },
+  tabTxt: {
+    color: Colors.textSecondary,
+    fontWeight: '800',
+    fontSize: 12,
+  },
+  tabTxtActive: {
+    color: Colors.text,
   },
   header: {
     padding: 24,
@@ -449,5 +694,82 @@ const styles = StyleSheet.create({
     color: Colors.text,
     fontWeight: '700',
     fontSize: 12,
+  },
+  remarkInput: {
+    minHeight: 110,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    backgroundColor: Colors.background,
+    padding: 12,
+    color: Colors.text,
+    textAlignVertical: 'top',
+  },
+  remarkBtn: {
+    marginTop: 12,
+    backgroundColor: Colors.primary,
+    borderRadius: 12,
+    paddingVertical: 12,
+    alignItems: 'center',
+  },
+  remarkBtnTxt: {
+    color: Colors.text,
+    fontWeight: '900',
+  },
+  dlgBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 22,
+  },
+  dlgCard: {
+    width: '100%',
+    maxWidth: 520,
+    backgroundColor: Colors.surface,
+    borderRadius: 16,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  dlgTitle: {
+    color: Colors.text,
+    fontWeight: '900',
+    fontSize: 16,
+  },
+  dlgSub: {
+    color: Colors.textSecondary,
+    fontWeight: '700',
+    marginTop: 4,
+    marginBottom: 12,
+  },
+  dlgRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 12,
+  },
+  dlgBtnGhost: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    backgroundColor: Colors.background,
+    alignItems: 'center',
+  },
+  dlgBtnGhostTxt: {
+    color: Colors.textSecondary,
+    fontWeight: '800',
+  },
+  dlgBtnPrimary: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 12,
+    backgroundColor: Colors.primary,
+    alignItems: 'center',
+  },
+  dlgBtnPrimaryTxt: {
+    color: Colors.text,
+    fontWeight: '900',
   },
 });

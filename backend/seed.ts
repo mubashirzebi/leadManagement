@@ -28,21 +28,21 @@ const seed = async () => {
         console.log('✅ Sample Organization created.');
     }
 
-    // 2. Setup Sample Agency Admin
+    // 2. Setup Sample Agency SuperAdmin
     const adminMobile = '9999999999';
     const existingAdmin = await User.findOne({ mobile: adminMobile });
     if (!existingAdmin) {
         const salt = await bcrypt.genSalt(10);
         const adminPass = await bcrypt.hash('admin123', salt);
         await User.create({
-            name: 'Agency Admin',
+            name: 'Agency SuperAdmin',
             mobile: adminMobile,
             password: adminPass,
-            role: 'admin',
+            role: 'superadmin',
             organization_id: org._id,
             must_change_password: false
         });
-        console.log('✅ Sample Agency Admin created.');
+        console.log('✅ Sample Agency SuperAdmin created.');
     }
 
     console.log('Sample seed finished successfully.');

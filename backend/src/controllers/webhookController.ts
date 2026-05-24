@@ -38,7 +38,7 @@ export const handleIncomingWebhook = async (req: AuthRequest, res: Response) => 
       mobile,
       source: source || 'Webhook',
       project,
-      status: 'New',
+      status: 'NEW',
       duplicateFlag: isDuplicate
     });
     res.status(201).json({ success: true, data: newLead });
@@ -174,8 +174,8 @@ export const handleMetaLead = async (req: Request, res: Response) => {
           name: getName(),
           mobile: getPhone(),
           source: 'Meta Ads',
-          status: 'New',
-          temperature: 'Warm',
+          status: 'NEW',
+          heat: 'WARM',
           duplicateFlag: isDuplicate,
           facebook_lead_id: leadgen_id,
           facebook_page_name: pageName,
@@ -233,8 +233,8 @@ export const handleGoogleLead = async (req: Request, res: Response) => {
       mobile,
       email,
       source: 'Google Ads',
-      status: 'New',
-      temperature: 'Warm',
+      status: 'NEW',
+      heat: 'WARM',
       duplicateFlag: isDuplicate,
       custom_data: customData
     });

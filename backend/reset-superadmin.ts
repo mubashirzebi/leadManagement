@@ -24,33 +24,33 @@ const resetSuperAdmin = async () => {
     }
 
     await mongoose.connect(MONGO_URI);
-    console.log('Connected to MongoDB for SuperAdmin reset...');
+    console.log('Connected to MongoDB for Platform Owner reset...');
 
     const query = superMobile
-      ? { role: 'superadmin', mobile: superMobile }
-      : { role: 'superadmin' };
+      ? { role: 'platform_owner', mobile: superMobile }
+      : { role: 'platform_owner' };
 
-    const superAdmin = await User.findOne(query);
-    if (!superAdmin) {
-      console.error('No matching SuperAdmin found.');
+    const platformOwner = await User.findOne(query);
+    if (!platformOwner) {
+      console.error('No matching Platform Owner found.');
       process.exit(1);
     }
 
-    superAdmin.password = await bcrypt.hash(superPass, 10);
-    superAdmin.must_change_password = false;
-    superAdmin.reset_password_token_hash = null;
-    superAdmin.reset_password_expires_at = null;
+    platformOwner.password = await bcrypt.hash(superPass, 10);
+    platformOwner.must_change_password = false;
+    platformOwner.reset_password_token_hash = null;
+    platformOwner.reset_password_expires_at = null;
 
     if (superEmail) {
-      superAdmin.email = superEmail.toLowerCase();
+      platformOwner.email = superEmail.toLowerCase();
     }
 
-    await superAdmin.save();
+    await platformOwner.save();
 
-    console.log(`SuperAdmin credentials updated for mobile ${superAdmin.mobile}`);
+    console.log(`Platform Owner credentials updated for mobile ${platformOwner.mobile}`);
     process.exit(0);
   } catch (error) {
-    console.error('SuperAdmin reset failed:', error);
+    console.error('Platform Owner reset failed:', error);
     process.exit(1);
   }
 };
