@@ -11,7 +11,6 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import client from '../api/client';
-import { useMetaConnect, MetaPage } from '../hooks/useMetaConnect';
 import { useAuth } from '../context/AuthContext';
 import { Colors } from '../theme/colors';
 
@@ -62,9 +61,10 @@ const dlg = StyleSheet.create({
 });
 
 const roleConfig: Record<string, { label: string; color: string; emoji: string }> = {
-  superadmin: { label: 'Platform Owner', color: '#a855f7', emoji: '👑' },
-  admin:      { label: 'Firm Admin', color: Colors.primary, emoji: '🏢' },
-  staff:      { label: 'Sales Staff',    color: Colors.success, emoji: '👤' },
+  platform_owner: { label: 'Platform Owner', color: '#a855f7', emoji: '👑' },
+  superadmin:     { label: 'Agency Owner',   color: Colors.primary, emoji: '🏢' },
+  admin:          { label: 'Sales Manager',  color: Colors.warning, emoji: '💼' },
+  staff:          { label: 'Sales Staff',    color: Colors.success, emoji: '👤' },
 };
 
 const InfoRow = ({ label, value }: { label: string; value: string }) => (
@@ -80,20 +80,32 @@ export const ProfileScreen = ({ navigation }: { navigation: any }) => {
   const [dialog, setDialog] = useState<DialogCfg>(HIDDEN_DLG);
   const [showIntegrations, setShowIntegrations] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [connectedPage, setConnectedPage] = useState<MetaPage | null>(null);
-  const [showPagePicker, setShowPagePicker] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
   const [orgData, setOrgData] = useState<any>(null);
 
+  // Step 1: User Access Token input
+  const [userTokenInput, setUserTokenInput] = useState('');
+  // Step 2: Page list and selection
+  const [fetchingPages, setFetchingPages] = useState(false);
+  const [pagesList, setPagesList] = useState<any[]>([]);
+  const [pageTokens, setPageTokens] = useState<Record<string, string>>({});
+  const [selectedPageIds, setSelectedPageIds] = useState<string[]>([]);
+  const [connectedPageNames, setConnectedPageNames] = useState<string[]>([]);
+
   const fetchProfile = useCallback(async () => {
     try {
-      const res = await client.get('/auth/organization');
-      if (res.data.success) {
+      // Trying to fetch the user's organization to populate existing config
+      const res = await client.get('/auth/organization').catch(() => null);
+      if (res?.data?.success) {
         setOrgData(res.data.data);
-        if (res.data.data.meta_config?.page_id) {
-          // If we have a page ID, it's connected
+        const activePages = (res.data.data.meta_config?.pages || []).filter((p: any) => p.is_active !== false);
+        if (activePages.length > 0) {
           setSaveSuccess(true);
+          setConnectedPageNames(activePages.map((p: any) => p.page_name));
+        } else {
+          setSaveSuccess(false);
+          setConnectedPageNames([]);
         }
       }
     } catch (e) {
@@ -105,39 +117,165 @@ export const ProfileScreen = ({ navigation }: { navigation: any }) => {
     fetchProfile();
   }, [fetchProfile]);
 
-  const { connect, savePage, pages, loading: metaLoading, error: metaError, setError: setMetaError } = useMetaConnect();
-
-  // Watch for pages coming in from the Facebook connect hook
-  React.useEffect(() => {
-    if (pages && pages.length > 0) {
-      setShowPagePicker(true);
-    }
-  }, [pages]);
-
   const closeDialog = useCallback(() => setDialog(HIDDEN_DLG), []);
 
   const openIntegrations = () => {
-    console.log('[Profile] Opening Integrations Modal');
     setLocalError(null);
     setSaveSuccess(false);
+    setPagesList([]);
+    setPageTokens({});
+    setSelectedPageIds([]);
+    setUserTokenInput('');
     setShowIntegrations(true);
   };
 
-  const handleConnectFacebook = async () => {
-    console.log('[Profile] Facebook Button Tapped');
-    setLocalError(null);
-    setMetaError(null);
-    await connect();
+  const handleUnlinkPage = async (pageId: string, pageName: string) => {
+    setDialog({
+      visible: true,
+      icon: '🔗',
+      title: 'Unlink Facebook Page',
+      message: `Are you sure you want to stop syncing leads from "${pageName}"? You can re-link it later.`,
+      confirmLabel: 'Unlink Page',
+      confirmColor: Colors.error,
+      onConfirm: async () => {
+        setDialog(HIDDEN_DLG);
+        try {
+          const res = await client.post('/integrations/meta/unlink', { page_id: pageId });
+          if (res.data.success) {
+            // Update profile details
+            const orgRes = await client.get('/auth/organization').catch(() => null);
+            if (orgRes?.data?.success) {
+              setOrgData(orgRes.data.data);
+              const activePages = (orgRes.data.data.meta_config?.pages || []).filter((p: any) => p.is_active !== false);
+              setConnectedPageNames(activePages.map((p: any) => p.page_name));
+            }
+            Alert.alert('Success', `Unlinked page "${pageName}" successfully.`);
+          }
+        } catch (e: any) {
+          Alert.alert('Error', e.response?.data?.message || 'Failed to unlink page.');
+        }
+      }
+    });
   };
 
-  const handleSelectPage = async (page: MetaPage) => {
-    setShowPagePicker(false);
-    const ok = await savePage(page);
-    if (ok) {
-      setConnectedPage(page);
-      setSaveSuccess(true);
+  const handleLinkPage = async (pageId: string, pageName: string) => {
+    try {
+      const res = await client.post('/integrations/meta/link', { page_id: pageId });
+      if (res.data.success) {
+        // Update profile details
+        const orgRes = await client.get('/auth/organization').catch(() => null);
+        if (orgRes?.data?.success) {
+          setOrgData(orgRes.data.data);
+          const activePages = (orgRes.data.data.meta_config?.pages || []).filter((p: any) => p.is_active !== false);
+          setConnectedPageNames(activePages.map((p: any) => p.page_name));
+        }
+        Alert.alert('Success', `Linked page "${pageName}" successfully.`);
+      }
+    } catch (e: any) {
+      Alert.alert('Error', e.response?.data?.message || 'Failed to link page.');
+    }
+  };
+
+  const handleLinkPageNew = async (pageId: string, pageName: string, pageAccessToken: string) => {
+    try {
+      const res = await client.post('/integrations/meta/link', {
+        page_id: pageId,
+        page_name: pageName,
+        access_token: pageAccessToken
+      });
+      if (res.data.success) {
+        // Update profile
+        const orgRes = await client.get('/auth/organization').catch(() => null);
+        if (orgRes?.data?.success) {
+          setOrgData(orgRes.data.data);
+          const activePages = (orgRes.data.data.meta_config?.pages || []).filter((p: any) => p.is_active !== false);
+          setConnectedPageNames(activePages.map((p: any) => p.page_name));
+        }
+        Alert.alert('Success', `Linked page "${pageName}" successfully.`);
+      }
+    } catch (e: any) {
+      Alert.alert('Error', e.response?.data?.message || 'Failed to link page.');
+    }
+  };
+
+  // Step 1: Fetch pages from Meta using the user token
+  const handleFetchPages = async () => {
+    if (!userTokenInput.trim()) {
+      setLocalError('Please paste your User Access Token');
+      return;
+    }
+    setFetchingPages(true);
+    setLocalError(null);
+    setPagesList([]);
+    try {
+      const res = await client.post('/integrations/meta/pages', {
+        user_access_token: userTokenInput.trim(),
+      });
+      if (res.data.success) {
+        setPagesList(res.data.data);
+        setPageTokens(res.data._pageTokens || {});
+        // Select all by default if there's only 1
+        if (res.data.data.length === 1) {
+          setSelectedPageIds([res.data.data[0].id]);
+        }
+      } else {
+        setLocalError(res.data.message || 'Failed to fetch pages');
+      }
+    } catch (e: any) {
+      setLocalError(e.response?.data?.message || 'Failed to fetch pages. Check your token.');
+    } finally {
+      setFetchingPages(false);
+    }
+  };
+
+  const handleTogglePage = (id: string) => {
+    setSelectedPageIds(prev => 
+      prev.includes(id) ? prev.filter(pId => pId !== id) : [...prev, id]
+    );
+  };
+
+  const handleSelectAll = () => {
+    if (selectedPageIds.length === pagesList.length) {
+      setSelectedPageIds([]); // deselect all
     } else {
-      setLocalError('Failed to save page. Please try again.');
+      setSelectedPageIds(pagesList.map(p => p.id)); // select all
+    }
+  };
+
+  // Step 2: Connect the selected pages
+  const handleConnectPage = async () => {
+    if (selectedPageIds.length === 0) {
+      setLocalError('Please select at least one Facebook Page');
+      return;
+    }
+    setSaving(true);
+    setLocalError(null);
+    try {
+      const pagesPayload = selectedPageIds.map(id => {
+        const page = pagesList.find(p => p.id === id);
+        return {
+          page_id: id,
+          page_name: page?.name || 'Unknown Page',
+          access_token: pageTokens[id] || userTokenInput,
+        };
+      });
+
+      const res = await client.post('/integrations/meta/connect', {
+        pages: pagesPayload,
+      });
+
+      if (res.data.success) {
+        setSaveSuccess(true);
+        const savedPages = res.data.data?.pages || pagesPayload;
+        setConnectedPageNames(savedPages.map((p: any) => p.page_name));
+        setOrgData((prev: any) => ({ ...prev, meta_config: { pages: savedPages } }));
+      } else {
+        setLocalError(res.data.message || 'Failed to connect');
+      }
+    } catch (e: any) {
+      setLocalError(e.response?.data?.message || 'Failed to connect to Meta');
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -153,6 +291,13 @@ export const ProfileScreen = ({ navigation }: { navigation: any }) => {
     });
   };
 
+  const hasPages = pagesList.length > 0;
+  const isAllSelected = hasPages && selectedPageIds.length === pagesList.length;
+
+  const connectedPages = orgData?.meta_config?.pages || [];
+  const activePages = connectedPages.filter((p: any) => p.is_active !== false);
+  const inactivePages = connectedPages.filter((p: any) => p.is_active === false);
+
   return (
     <View style={{ flex: 1 }}>
       <Dialog cfg={dialog} onCancel={closeDialog} />
@@ -162,7 +307,7 @@ export const ProfileScreen = ({ navigation }: { navigation: any }) => {
         <Text style={styles.pageTitle}>Profile</Text>
         <Text style={styles.pageSubtitle}>Your account details & settings</Text>
       </View>
-
+ 
       {/* ── Avatar Card ── */}
       <View style={styles.avatarCard}>
         <View style={[styles.avatarCircle, { backgroundColor: role.color + '25', borderColor: role.color + '60' }]}>
@@ -175,7 +320,7 @@ export const ProfileScreen = ({ navigation }: { navigation: any }) => {
           </Text>
         </View>
       </View>
-
+ 
       {/* ── Info Panel ── */}
       <View style={styles.panel}>
         <Text style={styles.panelTitle}>Account Information</Text>
@@ -183,13 +328,13 @@ export const ProfileScreen = ({ navigation }: { navigation: any }) => {
         {user?.email ? <InfoRow label="Email" value={user.email} /> : null}
         <InfoRow label="Role" value={role.label} />
       </View>
-
+ 
       {/* ── Integrations (Admin Only) ── */}
       {user?.role === 'admin' && (
         <View style={styles.actionsPanel}>
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
             <Text style={styles.panelTitle}>Marketing Integrations</Text>
-            {orgData?.meta_config?.page_id && (
+            {activePages.length > 0 && (
               <View style={[styles.statusBadge, { backgroundColor: Colors.success + '20' }]}>
                 <View style={[styles.statusDot, { backgroundColor: Colors.success }]} />
                 <Text style={[styles.statusText, { color: Colors.success }]}>Active</Text>
@@ -202,17 +347,55 @@ export const ProfileScreen = ({ navigation }: { navigation: any }) => {
               <Text style={[styles.actionIcon, { color: '#1877F2' }]}>f</Text>
             </View>
             <View style={styles.actionTextWrap}>
-              <Text style={styles.actionTitle}>
-                {orgData?.meta_config?.page_id ? 'Facebook Page Linked' : 'Connect Facebook Ads'}
-              </Text>
+              <Text style={styles.actionTitle}>Facebook Lead Sync</Text>
               <Text style={styles.actionDesc}>
-                {orgData?.meta_config?.page_id 
-                  ? 'Automatic lead sync is active' 
-                  : 'Manage Facebook lead synchronization'}
+                {activePages.length > 0 
+                  ? `Automatic lead sync active for ${activePages.length} page(s)` 
+                  : 'Connect Facebook lead synchronization'}
               </Text>
             </View>
             <Text style={styles.actionChevron}>›</Text>
           </TouchableOpacity>
+
+          {/* Render linked pages list directly in the profile screen */}
+          {activePages.length > 0 && (
+            <View style={{ marginTop: 12, borderTopWidth: 1, borderTopColor: Colors.border, paddingTop: 12 }}>
+              <Text style={{ fontSize: 11, fontWeight: '700', color: Colors.textSecondary, textTransform: 'uppercase', marginBottom: 8 }}>
+                Linked Facebook Pages
+              </Text>
+              {activePages.map((page: any) => (
+                <View key={page.page_id} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 8 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                    <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: Colors.success }} />
+                    <Text style={{ fontSize: 14, fontWeight: '600', color: Colors.text }}>{page.page_name}</Text>
+                  </View>
+                  <TouchableOpacity onPress={() => handleUnlinkPage(page.page_id, page.page_name)}>
+                    <Text style={{ fontSize: 13, fontWeight: '700', color: Colors.error }}>Unlink</Text>
+                  </TouchableOpacity>
+                </View>
+              ))}
+            </View>
+          )}
+
+          {/* Render inactive/previously connected pages that can be instantly re-linked */}
+          {inactivePages.length > 0 && (
+            <View style={{ marginTop: 12, borderTopWidth: 1, borderTopColor: Colors.border, paddingTop: 12 }}>
+              <Text style={{ fontSize: 11, fontWeight: '700', color: Colors.textSecondary, textTransform: 'uppercase', marginBottom: 8 }}>
+                Previously Linked Pages
+              </Text>
+              {inactivePages.map((page: any) => (
+                <View key={page.page_id} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 8 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, opacity: 0.6 }}>
+                    <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: Colors.textSecondary }} />
+                    <Text style={{ fontSize: 14, fontWeight: '600', color: Colors.textSecondary }}>{page.page_name}</Text>
+                  </View>
+                  <TouchableOpacity onPress={() => handleLinkPage(page.page_id, page.page_name)}>
+                    <Text style={{ fontSize: 13, fontWeight: '700', color: Colors.primary }}>Re-link</Text>
+                  </TouchableOpacity>
+                </View>
+              ))}
+            </View>
+          )}
         </View>
       )}
 
@@ -266,73 +449,116 @@ export const ProfileScreen = ({ navigation }: { navigation: any }) => {
             </TouchableOpacity>
             
             <Text style={styles.modalTitle}>🔗 Meta Integration</Text>
-            <Text style={styles.modalSubtitle}>Connect your Facebook Page to automatically receive leads from your ads.</Text>
+            <Text style={styles.modalSubtitle}>Connect your Facebook Pages to automatically receive leads from your ads.</Text>
 
-            {(localError || metaError) && (
-              <View style={styles.errorBox}>
-                <Text style={styles.errorText}>{localError || metaError}</Text>
-              </View>
-            )}
+            {pagesList.length === 0 ? (
+              <>
+                {/* ── STEP 1: Paste User Access Token ── */}
+                <View style={styles.stepBadge}>
+                  <Text style={styles.stepBadgeText}>STEP 1</Text>
+                </View>
+                <Text style={styles.inputLabel}>User Access Token</Text>
+                <TextInput
+                  style={[styles.input, { height: 100 }]}
+                  placeholder="Paste your User Access Token from Facebook Graph API Explorer..."
+                  placeholderTextColor={Colors.textSecondary}
+                  value={userTokenInput}
+                  onChangeText={setUserTokenInput}
+                  multiline
+                  textAlignVertical="top"
+                />
+                <Text style={styles.helperText}>
+                  Get this from developers.facebook.com → Graph API Explorer → Generate User Token with leads_retrieval & pages_show_list permissions.
+                </Text>
 
-            {saveSuccess && connectedPage ? (
-              <View style={styles.successBox}>
-                <Text style={styles.successIcon}>✅</Text>
-                <Text style={styles.successTitle}>Connected!</Text>
-                <Text style={styles.successDesc}>{connectedPage.name}</Text>
-                <Text style={styles.successSub}>Leads from this page will now flow into your CRM automatically.</Text>
-              </View>
+                <TouchableOpacity
+                  style={[styles.fbBtn, { opacity: fetchingPages ? 0.6 : 1 }]}
+                  onPress={handleFetchPages}
+                  disabled={fetchingPages}
+                >
+                  {fetchingPages ? (
+                    <ActivityIndicator color="#fff" />
+                  ) : (
+                    <>
+                      <Text style={styles.fbBtnIcon}>f</Text>
+                      <Text style={styles.fbBtnTxt}>Fetch My Pages</Text>
+                    </>
+                  )}
+                </TouchableOpacity>
+              </>
             ) : (
-              <TouchableOpacity
-                style={[styles.fbBtn, { opacity: metaLoading ? 0.6 : 1 }]}
-                onPress={handleConnectFacebook}
-                disabled={metaLoading}
-              >
-                {metaLoading ? (
-                  <ActivityIndicator color="#fff" />
-                ) : (
-                  <>
-                    <Text style={styles.fbBtnIcon}>🔵</Text>
-                    <Text style={styles.fbBtnTxt}>Connect with Facebook</Text>
-                  </>
-                )}
-              </TouchableOpacity>
+              <>
+                {/* ── STEP 2: Manage Pages ── */}
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                  <View style={[styles.stepBadge, { marginBottom: 0 }]}>
+                    <Text style={styles.stepBadgeText}>STEP 2 — MANAGE PAGES</Text>
+                  </View>
+                </View>
+
+                <ScrollView style={{ maxHeight: 300 }} showsVerticalScrollIndicator={false}>
+                  {pagesList.map((page: any) => {
+                    const isLinked = (orgData?.meta_config?.pages || []).some(
+                      (p: any) => p.page_id === page.id && p.is_active !== false
+                    );
+
+                    return (
+                      <View
+                        key={page.id}
+                        style={[
+                          styles.pageCard,
+                          isLinked && { borderColor: Colors.success, borderWidth: 1, backgroundColor: Colors.success + '05' }
+                        ]}
+                      >
+                        <View style={styles.pageIconWrap}>
+                          <Text style={{ fontSize: 20, color: '#1877F2' }}>f</Text>
+                        </View>
+                        <View style={{ flex: 1 }}>
+                          <Text style={styles.pageName}>{page.name}</Text>
+                          <Text style={styles.pageCategory}>{page.category}</Text>
+                        </View>
+                        
+                        {isLinked ? (
+                          <TouchableOpacity
+                            onPress={() => handleUnlinkPage(page.id, page.name)}
+                            style={{ backgroundColor: Colors.error + '20', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8 }}
+                          >
+                            <Text style={{ color: Colors.error, fontSize: 12, fontWeight: '700' }}>Unlink</Text>
+                          </TouchableOpacity>
+                        ) : (
+                          <TouchableOpacity
+                            onPress={() => handleLinkPageNew(page.id, page.name, pageTokens[page.id] || userTokenInput)}
+                            style={{ backgroundColor: Colors.primary, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8 }}
+                          >
+                            <Text style={{ color: '#fff', fontSize: 12, fontWeight: '700' }}>Link</Text>
+                          </TouchableOpacity>
+                        )}
+                      </View>
+                    );
+                  })}
+                </ScrollView>
+
+                <TouchableOpacity
+                  style={[styles.saveBtn, { marginTop: 16, backgroundColor: Colors.success }]}
+                  onPress={() => setShowIntegrations(false)}
+                >
+                  <Text style={styles.saveBtnTxt}>Done</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[styles.diagBtn, { marginTop: 0 }]}
+                  onPress={() => {
+                    setPagesList([]);
+                    setPageTokens({});
+                    setSelectedPageIds([]);
+                  }}
+                >
+                  <Text style={styles.diagBtnTxt}>← Back to Token Input</Text>
+                </TouchableOpacity>
+              </>
             )}
 
             <View style={styles.divider} />
 
-          </View>
-        </View>
-      </Modal>
-
-      {/* ── Page Picker Modal ── */}
-      <Modal visible={showPagePicker} animationType="slide" transparent>
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalCard}>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-              <Text style={styles.modalTitle}>Select a Page</Text>
-              <TouchableOpacity onPress={() => setShowPagePicker(false)}>
-                <Text style={styles.closeBtnTxt}>✕</Text>
-              </TouchableOpacity>
-            </View>
-            <Text style={styles.modalSubtitle}>Choose the Facebook Page to connect for lead capture:</Text>
-            <ScrollView showsVerticalScrollIndicator={false}>
-              {pages.map(page => (
-                <TouchableOpacity
-                  key={page.id}
-                  style={styles.pageCard}
-                  onPress={() => handleSelectPage(page)}
-                >
-                  <View style={styles.pageIconWrap}>
-                    <Text style={{ fontSize: 22 }}>📝</Text>
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.pageName}>{page.name}</Text>
-                    <Text style={styles.pageCategory}>{page.category}</Text>
-                  </View>
-                  <Text style={{ color: Colors.primary, fontSize: 22 }}>›</Text>
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
           </View>
         </View>
       </Modal>
@@ -496,6 +722,30 @@ const styles = StyleSheet.create({
   fbBtn:        { backgroundColor: '#1877F2', borderRadius: 14, paddingVertical: 16, paddingHorizontal: 20, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, marginTop: 8 },
   fbBtnIcon:    { fontSize: 20 },
   fbBtnTxt:     { color: '#fff', fontSize: 16, fontWeight: '800' },
+
+  // Diagnostic test button
+  diagBtn: {
+    backgroundColor: Colors.background,
+    borderRadius: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    alignItems: 'center',
+    marginTop: 12,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    borderStyle: 'dashed',
+  },
+  diagBtnTxt: {
+    color: Colors.textSecondary,
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  diagBtnNote: {
+    color: Colors.textSecondary,
+    fontSize: 11,
+    marginTop: 4,
+    opacity: 0.7,
+  },
   successBox:   { alignItems: 'center', paddingVertical: 24 },
   successIcon:  { fontSize: 48, marginBottom: 8 },
   successTitle: { fontSize: 22, fontWeight: '800', color: Colors.success, marginBottom: 4 },
@@ -526,5 +776,22 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: '800',
     textTransform: 'uppercase',
+  },
+
+  // Step Badge
+  stepBadge: {
+    alignSelf: 'flex-start',
+    backgroundColor: Colors.primary + '20',
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    borderRadius: 8,
+    marginBottom: 12,
+    marginTop: 4,
+  },
+  stepBadgeText: {
+    color: Colors.primary,
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 1,
   },
 });

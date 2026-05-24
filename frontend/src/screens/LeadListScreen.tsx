@@ -41,7 +41,11 @@ export const LeadListScreen = ({ navigation }: { navigation: any }) => {
 
   useEffect(() => {
     fetchLeads();
-  }, [search, selectedStatus, selectedTemp]);
+    const unsubscribe = navigation.addListener('focus', () => {
+      fetchLeads();
+    });
+    return unsubscribe;
+  }, [navigation, search, selectedStatus, selectedTemp]);
 
   const renderLeadItem = ({ item }: { item: Lead }) => (
     <TouchableOpacity 
@@ -49,7 +53,14 @@ export const LeadListScreen = ({ navigation }: { navigation: any }) => {
       onPress={() => navigation.navigate('LeadDetail', { lead: item })}
     >
       <View style={styles.leadInfo}>
-        <Text style={styles.leadName}>{item.name}</Text>
+        <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap' }}>
+          <Text style={styles.leadName}>{item.name}</Text>
+          {item.duplicateFlag && (
+            <View style={styles.duplicateBadge}>
+              <Text style={styles.duplicateBadgeText}>DUPLICATE</Text>
+            </View>
+          )}
+        </View>
         <Text style={styles.leadMobile}>{item.mobile}</Text>
         {item.project ? <Text style={styles.leadProject}>{item.project}</Text> : null}
       </View>
@@ -267,5 +278,20 @@ const styles = StyleSheet.create({
     fontSize: 32,
     fontWeight: '400',
     marginTop: -4,
+  },
+  duplicateBadge: {
+    backgroundColor: '#ef444422',
+    borderColor: '#ef4444',
+    borderWidth: 1,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+    marginLeft: 8,
+    alignSelf: 'center',
+  },
+  duplicateBadgeText: {
+    color: '#ef4444',
+    fontSize: 9,
+    fontWeight: '800',
   },
 });

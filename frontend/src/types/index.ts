@@ -9,6 +9,10 @@ export interface Lead {
   temperature: 'Hot' | 'Warm' | 'Cold';
   status: 'New' | 'Contacted' | 'Qualified' | 'Lost' | 'Closed';
   assigned_to?: any;
+  duplicateFlag?: boolean;
+  facebook_page_name?: string;
+  facebook_form_name?: string;
+  custom_data?: Record<string, string>;
   created_at: string;
 }
 

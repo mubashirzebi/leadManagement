@@ -116,6 +116,13 @@ export const LeadDetailScreen = ({ route, navigation }: { route: any, navigation
           </View>
         </View>
 
+        <View style={styles.infoRow}>
+          <Text style={styles.label}>Duplicate Status</Text>
+          <View style={[styles.statusBadge, { backgroundColor: lead.duplicateFlag ? Colors.error : Colors.border }]}>
+            <Text style={styles.statusText}>{lead.duplicateFlag ? 'Duplicate' : 'Original / Unique'}</Text>
+          </View>
+        </View>
+
         {lead.project ? (
           <View style={styles.infoRow}>
             <Text style={styles.label}>Project</Text>
@@ -127,6 +134,46 @@ export const LeadDetailScreen = ({ route, navigation }: { route: any, navigation
           <Text style={styles.label}>Source</Text>
           <Text style={styles.value}>{lead.source}</Text>
         </View>
+
+        {lead.facebook_page_name ? (
+          <View style={styles.infoRow}>
+            <Text style={styles.label}>Source Page</Text>
+            <Text style={styles.value}>{lead.facebook_page_name}</Text>
+          </View>
+        ) : null}
+
+        {lead.facebook_form_name ? (
+          <View style={styles.infoRow}>
+            <Text style={styles.label}>Source Form</Text>
+            <Text style={styles.value}>{lead.facebook_form_name}</Text>
+          </View>
+        ) : null}
+
+        {lead.custom_data && Object.keys(lead.custom_data).length > 0 && (
+          <View style={{ marginTop: 16, paddingTop: 16, borderTopWidth: 1, borderTopColor: Colors.border }}>
+            <Text style={[styles.sectionTitle, { marginBottom: 16, fontSize: 14, color: Colors.textSecondary }]}>
+              Form Answers
+            </Text>
+            {Object.entries(lead.custom_data).map(([key, val]) => {
+              // Hide redundant standard fields since they are already displayed
+              if (['full_name', 'name', 'phone_number', 'phone', 'email', 'city', 'FIRST_NAME', 'PHONE_NUMBER', 'USER_EMAIL'].includes(key)) return null;
+              
+              // Prettify the key (Title Casing and replacing underscores/hyphens)
+              const prettifiedKey = key
+                .replace(/[_-]/g, ' ')
+                .replace(/\w\S*/g, (txt) => txt.charAt(0).toUpperCase() + txt.substring(1).toLowerCase())
+                .replace(/\bId\b/g, 'ID')
+                .replace(/\bEmail\b/g, 'Email');
+
+              return (
+                <View key={key} style={styles.infoRow}>
+                  <Text style={styles.label}>{prettifiedKey}</Text>
+                  <Text style={styles.value}>{String(val)}</Text>
+                </View>
+              );
+            })}
+          </View>
+        )}
       </View>
 
       <View style={styles.actionSection}>
@@ -211,6 +258,40 @@ export const LeadDetailScreen = ({ route, navigation }: { route: any, navigation
                 ]}>{s.name}</Text>
               </TouchableOpacity>
             ))}
+          </View>
+        </View>
+      )}
+
+      {(user?.role === 'admin' || user?.role === 'superadmin') && (
+        <View style={[styles.actionSection, { marginTop: -20 }]}>
+          <Text style={styles.sectionTitle}>Duplicate Management</Text>
+          <View style={styles.statusGrid}>
+            <TouchableOpacity 
+              onPress={() => handleUpdate({ duplicateFlag: true })}
+              disabled={updating}
+              style={[
+                styles.statusButton,
+                lead.duplicateFlag && { backgroundColor: Colors.error, borderColor: 'transparent' }
+              ]}
+            >
+              <Text style={[
+                styles.statusButtonText,
+                lead.duplicateFlag && styles.activeStatusButtonText
+              ]}>Mark as Duplicate</Text>
+            </TouchableOpacity>
+            <TouchableOpacity 
+              onPress={() => handleUpdate({ duplicateFlag: false })}
+              disabled={updating}
+              style={[
+                styles.statusButton,
+                !lead.duplicateFlag && { backgroundColor: Colors.success, borderColor: 'transparent' }
+              ]}
+            >
+              <Text style={[
+                styles.statusButtonText,
+                !lead.duplicateFlag && styles.activeStatusButtonText
+              ]}>Mark as Original / Unique</Text>
+            </TouchableOpacity>
           </View>
         </View>
       )}

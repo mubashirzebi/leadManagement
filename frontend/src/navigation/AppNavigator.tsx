@@ -67,7 +67,7 @@ const MainTabs = () => {
         },
       })}
     >
-      {user?.role === 'superadmin' ? (
+      {user?.role === 'platform_owner' ? (
         <>
           <Tab.Screen name="Firms" component={SuperAdminScreen} />
           <Tab.Screen name="My Account" component={ProfileScreen} />
@@ -76,7 +76,7 @@ const MainTabs = () => {
         <>
           <Tab.Screen name="Home" component={DashboardScreen} />
           <Tab.Screen name={user?.role === 'staff' ? 'My Leads' : 'Leads'} component={LeadListScreen} />
-          {user?.role === 'admin' && <Tab.Screen name="Team" component={TeamManagementScreen} />}
+          {user?.role === 'superadmin' && <Tab.Screen name="Team" component={TeamManagementScreen} />}
           <Tab.Screen name="Profile" component={ProfileScreen} />
         </>
       )}
