@@ -35,7 +35,7 @@ export const createOrganization = async (req: AuthRequest, res: Response) => {
       name: adminName,
       mobile: adminMobile,
       password: hashedPassword,
-      role: 'admin',
+      role: 'superadmin',
       status: 'active',
       must_change_password: true
     });
@@ -62,8 +62,8 @@ export const getOrganizations = async (req: AuthRequest, res: Response) => {
     // Enrich each org with admin info, staff count, and lead count
     const enriched = await Promise.all(organizations.map(async (org) => {
       const [admin, staffCount, leadCount] = await Promise.all([
-        User.findOne({ organization_id: org._id, role: 'admin' }).select('_id name mobile created_at'),
-        User.countDocuments({ organization_id: org._id, role: 'staff' }),
+        User.findOne({ organization_id: org._id, role: 'superadmin' }).select('_id name mobile created_at'),
+        User.countDocuments({ organization_id: org._id, role: { $in: ['admin', 'staff'] } }),
         Lead.countDocuments({ organization_id: org._id }),
       ]);
 

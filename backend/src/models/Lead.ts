@@ -18,6 +18,11 @@ export interface ILead extends Document {
   is_revisit?: boolean;
   last_call_at?: Date | null;
   last_whatsapp_at?: Date | null;
+  duplicateFlag?: boolean;
+  facebook_lead_id?: string | null;
+  facebook_page_name?: string | null;
+  facebook_form_name?: string | null;
+  custom_data?: Record<string, string>;
   created_at: Date;
   updated_at: Date;
 }
@@ -40,9 +45,16 @@ const LeadSchema: Schema = new Schema({
   is_revisit: { type: Boolean, default: false },
   last_call_at: { type: Date, default: null },
   last_whatsapp_at: { type: Date, default: null },
+  duplicateFlag: { type: Boolean, default: false },
+  facebook_lead_id: { type: String, default: null },
+  facebook_page_name: { type: String, default: null },
+  facebook_form_name: { type: String, default: null },
+  custom_data: { type: Map, of: String, default: {} },
 }, { timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' } });
 
-// Unique mobile per organization
-LeadSchema.index({ mobile: 1, organization_id: 1 }, { unique: true });
+// Index on mobile and organization_id (not unique to support duplicate leads)
+LeadSchema.index({ mobile: 1, organization_id: 1 });
+// Index on facebook_lead_id to prevent webhook/cron duplicate overlap
+LeadSchema.index({ facebook_lead_id: 1 }, { sparse: true });
 
 export default mongoose.model<ILead>('Lead', LeadSchema);

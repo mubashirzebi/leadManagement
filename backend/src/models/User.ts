@@ -6,7 +6,7 @@ export interface IUser extends Document {
   email?: string | null;
   mobile: string;
   password?: string;
-  role: 'superadmin' | 'admin' | 'staff';
+  role: 'platform_owner' | 'superadmin' | 'admin' | 'staff';
   status: 'active' | 'inactive';
   must_change_password?: boolean;
   reset_password_token_hash?: string | null;
@@ -22,7 +22,7 @@ const UserSchema: Schema = new Schema({
   email: { type: String, lowercase: true, trim: true, default: null },
   mobile: { type: String, required: true },
   password: { type: String, required: true },
-  role: { type: String, enum: ['superadmin', 'admin', 'staff'], required: true },
+  role: { type: String, enum: ['platform_owner', 'superadmin', 'admin', 'staff'], required: true },
   status: { type: String, enum: ['active', 'inactive'], default: 'active' },
   must_change_password: { type: Boolean, default: true },
   reset_password_token_hash: { type: String, default: null },

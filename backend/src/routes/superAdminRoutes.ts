@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { requireSuperAdmin } from '../middleware/auth';
+import { requirePlatformOwner } from '../middleware/auth';
 import { 
   createOrganization, 
   getOrganizations, 
@@ -9,7 +9,7 @@ import {
 } from '../controllers/superAdminController';
 
 const router = Router();
-router.use(requireSuperAdmin);
+router.use(requirePlatformOwner);
 
 router.get('/organizations', getOrganizations);
 router.post('/organizations', createOrganization);

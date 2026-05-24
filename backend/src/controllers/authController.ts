@@ -20,7 +20,7 @@ export const login = async (req: Request, res: Response) => {
       return res.status(400).json({ success: false, message: 'Mobile and password required' });
     }
 
-    const user = await User.findOne({ mobile }).populate('organization_id');
+    const user = await User.findOne({ mobile, status: 'active' }).populate('organization_id');
     if (!user) {
       return res.status(401).json({ success: false, message: 'Invalid credentials' });
     }
@@ -30,8 +30,8 @@ export const login = async (req: Request, res: Response) => {
       return res.status(401).json({ success: false, message: 'Invalid credentials' });
     }
 
-    // Check organization status (Kill Switch) if it's not a superadmin
-    if (user.role !== 'superadmin' && user.organization_id) {
+    // Check organization status (Kill Switch) if it's not a platform_owner
+    if (user.role !== 'platform_owner' && user.organization_id) {
       const org = user.organization_id as any;
       if (org.status === 'suspended') {
         return res.status(403).json({ success: false, message: 'Your agency account has been suspended. Please contact support.' });
@@ -112,7 +112,7 @@ export const forgotSuperAdminPassword = async (req: Request, res: Response) => {
       message: 'If a SuperAdmin exists with this email, reset instructions have been sent.'
     };
 
-    const user = await User.findOne({ email: normalizedEmail, role: 'superadmin' });
+    const user = await User.findOne({ email: normalizedEmail, role: 'platform_owner' });
     if (!user) {
       return res.json(genericResponse);
     }
@@ -152,7 +152,7 @@ export const resetSuperAdminPassword = async (req: Request, res: Response) => {
 
     const user = await User.findOne({
       email: normalizedEmail,
-      role: 'superadmin',
+      role: 'platform_owner',
       reset_password_token_hash: tokenHash,
       reset_password_expires_at: { $gt: new Date() }
     });
@@ -182,8 +182,8 @@ export const updateMyOrganization = async (req: AuthRequest, res: Response) => {
     const orgId = req.user?.organization_id;
     const { meta_config, google_key } = req.body;
 
-    if (req.user?.role !== 'admin') {
-      return res.status(403).json({ success: false, message: 'Only Admins can manage integrations' });
+    if (req.user?.role !== 'superadmin') {
+      return res.status(403).json({ success: false, message: 'Only Agency Owners can manage integrations' });
     }
 
     if (!orgId) {
@@ -221,37 +221,61 @@ export const getMyOrganization = async (req: AuthRequest, res: Response) => {
   }
 };
 
-// Exchange short-lived Facebook token → fetch admin's Pages list
+// Exchange short-lived Facebook token OR authorization code → fetch admin's Pages list
 export const exchangeMetaToken = async (req: AuthRequest, res: Response) => {
   try {
-    const { access_token } = req.body;
+    const { access_token, code, redirect_uri } = req.body;
     const APP_ID = process.env.META_APP_ID;
     const APP_SECRET = process.env.META_APP_SECRET;
 
-    if (req.user?.role !== 'admin') {
-      return res.status(403).json({ success: false, message: 'Only Admins can connect Meta pages' });
+    if (req.user?.role !== 'superadmin') {
+      return res.status(403).json({ success: false, message: 'Only Agency Owners can connect Meta pages' });
     }
 
-    if (!access_token) {
-      return res.status(400).json({ success: false, message: 'Missing access_token' });
+    if (!access_token && !code) {
+      return res.status(400).json({ success: false, message: 'Either access_token or code is required' });
+    }
+    if (code && !redirect_uri) {
+      return res.status(400).json({ success: false, message: 'redirect_uri is required when using authorization code' });
     }
     if (!APP_ID || !APP_SECRET) {
       return res.status(500).json({ success: false, message: 'Meta app not configured' });
     }
 
+    let shortLivedToken: string;
+
+    if (code) {
+      // New flow: Exchange authorization code for a short-lived token (server-side, no PKCE)
+      console.log('[Meta] Exchanging authorization code for short-lived token...');
+      const codeExchangeUrl = `https://graph.facebook.com/v19.0/oauth/access_token?client_id=${APP_ID}&client_secret=${APP_SECRET}&redirect_uri=${encodeURIComponent(redirect_uri)}&code=${code}`;
+      const ceResponse = await fetch(codeExchangeUrl);
+      const ceData: any = await ceResponse.json();
+
+      if (!ceResponse.ok || !ceData.access_token) {
+        console.error('[Meta Code Exchange Error]:', JSON.stringify(ceData, null, 2));
+        return res.status(400).json({ success: false, message: ceData.error?.message || 'Authorization code exchange failed' });
+      }
+
+      shortLivedToken = ceData.access_token;
+      console.log('[Meta] Authorization code exchanged successfully.');
+    } else {
+      // Legacy flow: Use the access_token directly as the short-lived token
+      shortLivedToken = access_token;
+    }
+
     // Step 1: Exchange short-lived token for long-lived token
-    console.log('[Meta] Exchanging token...');
-    const longLivedUrl = `https://graph.facebook.com/v19.0/oauth/access_token?grant_type=fb_exchange_token&client_id=${APP_ID}&client_secret=${APP_SECRET}&fb_exchange_token=${access_token}`;
+    console.log('[Meta] Exchanging short-lived token for long-lived token...');
+    const longLivedUrl = `https://graph.facebook.com/v19.0/oauth/access_token?grant_type=fb_exchange_token&client_id=${APP_ID}&client_secret=${APP_SECRET}&fb_exchange_token=${shortLivedToken}`;
     const llResponse = await fetch(longLivedUrl);
     const llData: any = await llResponse.json();
 
     if (!llResponse.ok || !llData.access_token) {
-      console.error('[Meta Exchange Error Step 1]:', JSON.stringify(llData, null, 2));
+      console.error('[Meta Long-Lived Exchange Error]:', JSON.stringify(llData, null, 2));
       return res.status(400).json({ success: false, message: llData.error?.message || 'Token exchange failed' });
     }
 
     const longLivedToken = llData.access_token;
-    console.log('[Meta] Token exchanged successfully.');
+    console.log('[Meta] Long-lived token obtained successfully.');
 
     // Step 2: Fetch the list of Pages this user manages
     console.log('[Meta] Fetching pages...');
@@ -260,18 +284,18 @@ export const exchangeMetaToken = async (req: AuthRequest, res: Response) => {
     const pagesData: any = await pagesResponse.json();
 
     if (!pagesResponse.ok || !pagesData.data) {
-      console.error('[Meta Exchange Error Step 2]:', JSON.stringify(pagesData, null, 2));
+      console.error('[Meta Pages Fetch Error]:', JSON.stringify(pagesData, null, 2));
       return res.status(400).json({ success: false, message: 'Could not fetch pages' });
     }
 
     console.log(`[Meta] Successfully fetched ${pagesData.data.length} pages.`);
 
-    res.json({ 
-      success: true, 
-      data: { 
+    res.json({
+      success: true,
+      data: {
         pages: pagesData.data,
-        user_token: longLivedToken 
-      } 
+        user_token: longLivedToken
+      }
     });
   } catch (error) {
     console.error('[Meta Exchange Error]:', error);

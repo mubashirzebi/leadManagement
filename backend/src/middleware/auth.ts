@@ -28,7 +28,7 @@ export const authenticate = async (req: AuthRequest, res: Response, next: NextFu
     const decoded = jwt.verify(token, process.env.JWT_SECRET) as JwtPayload;
     
     // Kill Switch validation on every request
-    if (decoded.role !== 'superadmin' && decoded.organization_id) {
+    if (decoded.role !== 'platform_owner' && decoded.organization_id) {
       const user = await User.findById(decoded.id).populate('organization_id');
       if (!user) {
         return res.status(401).json({ success: false, message: 'User not found' });
@@ -48,9 +48,9 @@ export const authenticate = async (req: AuthRequest, res: Response, next: NextFu
   }
 };
 
-export const requireSuperAdmin = (req: AuthRequest, res: Response, next: NextFunction) => {
-  if (req.user?.role !== 'superadmin') {
-    return res.status(403).json({ success: false, message: 'SuperAdmin access required' });
+export const requirePlatformOwner = (req: AuthRequest, res: Response, next: NextFunction) => {
+  if (req.user?.role !== 'platform_owner') {
+    return res.status(403).json({ success: false, message: 'Platform Owner access required' });
   }
   next();
 };

@@ -2,6 +2,7 @@ import { Response } from 'express';
 import mongoose from 'mongoose';
 import Lead from '../models/Lead';
 import ActivityLog from '../models/ActivityLog';
+import Organization from '../models/Organization';
 import { AuthRequest } from '../middleware/auth';
 
 export const createLead = async (req: AuthRequest, res: Response) => {
@@ -13,6 +14,13 @@ export const createLead = async (req: AuthRequest, res: Response) => {
       return res.status(403).json({ success: false, message: 'No organization linked' });
     }
 
+    // Detect duplicate phone numbers within the organization
+    const exists = await Lead.findOne({
+      organization_id: new mongoose.Types.ObjectId(organization_id as string),
+      mobile
+    });
+    const isDuplicate = !!exists;
+
     const newLead = await Lead.create({
       organization_id: new mongoose.Types.ObjectId(organization_id as string),
       assigned_to: null,
@@ -23,7 +31,8 @@ export const createLead = async (req: AuthRequest, res: Response) => {
       budget,
       city,
       temperature: temperature || 'Warm',
-      status: 'New'
+      status: 'New',
+      duplicateFlag: isDuplicate
     });
 
     res.status(201).json({ success: true, data: newLead, message: 'Lead created manually' });
@@ -83,6 +92,17 @@ export const getDashboardStats = async (req: AuthRequest, res: Response) => {
       matchQuery.assigned_to = new mongoose.Types.ObjectId(req.user.id);
     }
 
+    // Exclude leads belonging to unlinked/inactive Facebook pages (soft delete/hide)
+    const org = await Organization.findById(organization_id);
+    if (org && org.meta_config?.pages) {
+      const inactivePageNames = org.meta_config.pages
+        .filter((p: any) => p.is_active === false)
+        .map((p: any) => p.page_name);
+      if (inactivePageNames.length > 0) {
+        matchQuery.facebook_page_name = { $nin: inactivePageNames };
+      }
+    }
+
     const stats = await Lead.aggregate([
       { $match: matchQuery },
       { $group: { _id: '$status', count: { $sum: 1 } } }
@@ -119,6 +139,17 @@ export const getLeads = async (req: AuthRequest, res: Response) => {
       query.assigned_to = new mongoose.Types.ObjectId(req.user.id);
     } else if (assigned_to) {
       query.assigned_to = assigned_to === 'null' ? null : assigned_to;
+    }
+
+    // Exclude leads belonging to unlinked/inactive Facebook pages (soft delete/hide)
+    const org = await Organization.findById(organization_id);
+    if (org && org.meta_config?.pages) {
+      const inactivePageNames = org.meta_config.pages
+        .filter((p: any) => p.is_active === false)
+        .map((p: any) => p.page_name);
+      if (inactivePageNames.length > 0) {
+        query.facebook_page_name = { $nin: inactivePageNames };
+      }
     }
 
     if (status) query.status = status;
@@ -172,7 +203,7 @@ export const getLeadDetails = async (req: AuthRequest, res: Response) => {
 export const updateLead = async (req: AuthRequest, res: Response) => {
   try {
     const { id } = req.params;
-    const { status, temperature, assigned_to, remark } = req.body;
+    const { status, temperature, assigned_to, remark, duplicateFlag } = req.body;
     const organization_id = req.user?.organization_id;
 
     if (!organization_id) {
@@ -183,6 +214,7 @@ export const updateLead = async (req: AuthRequest, res: Response) => {
     if (status) updateData.status = status;
     if (temperature) updateData.temperature = temperature;
     if (assigned_to !== undefined) updateData.assigned_to = assigned_to;
+    if (duplicateFlag !== undefined) updateData.duplicateFlag = duplicateFlag;
 
     const query: any = { _id: id, organization_id };
     if (req.user?.role === 'staff') {
@@ -200,12 +232,18 @@ export const updateLead = async (req: AuthRequest, res: Response) => {
     }
 
     // Log the update
+    const changes: string[] = [];
+    if (status) changes.push(`status to ${status}`);
+    if (temperature) changes.push(`temperature to ${temperature}`);
+    if (assigned_to !== undefined) changes.push(`assignment`);
+    if (duplicateFlag !== undefined) changes.push(`duplicate status to ${duplicateFlag ? 'Duplicate' : 'Not Duplicate'}`);
+
     await ActivityLog.create({
       organization_id: new mongoose.Types.ObjectId(organization_id as string),
       lead_id: new mongoose.Types.ObjectId(id as string),
       user_id: new mongoose.Types.ObjectId(req.user?.id),
       type: 'update',
-      content: `Updated lead status to ${status}`
+      content: `Updated ${changes.join(', ')}`
     });
 
     res.json({ success: true, data: lead, message: 'Lead updated successfully' });
