@@ -31,7 +31,7 @@ export const LeadListScreen = ({ navigation }: { navigation: any }) => {
   const [assignOpen, setAssignOpen] = useState(false);
   const [assignLead, setAssignLead] = useState<Lead | null>(null);
 
-  const statuses = ['All', 'NEW', 'INVALID_NUMBER', 'CALLBACK', 'INTERESTED', 'NOT_INTERESTED'];
+  const statuses = ['All', 'NEW', 'CALLBACK', 'INTERESTED', 'VISIT_BOOKED', 'RE_VISIT', 'BOOKED', 'NOT_INTERESTED', 'INVALID_NUMBER'];
   const heats = ['All', 'HOT', 'WARM', 'COLD'];
   const canUseManagerViews = user?.role === 'superadmin' || user?.role === 'admin';
   const canAssignLeads = canUseManagerViews;
@@ -150,6 +150,20 @@ export const LeadListScreen = ({ navigation }: { navigation: any }) => {
           <Text style={styles.assigneeText}>{getAssigneeLabel(item)}</Text>
         )}
         {item.project ? <Text style={styles.leadProject}>{item.project}</Text> : null}
+        {['INTERESTED', 'VISIT_BOOKED', 'VISITED', 'RE_VISIT', 'BOOKED'].includes(item.status) && (item.property_type || item.budget) ? (
+          <View style={{ flexDirection: 'row', gap: 8, marginTop: 4 }}>
+            {item.property_type ? <Text style={styles.leadChip}>{item.property_type}</Text> : null}
+            {item.budget ? <Text style={styles.leadChip}>{item.budget}</Text> : null}
+          </View>
+        ) : null}
+        {item.status === 'VISITED' && item.visit_count ? (
+          <Text style={[styles.leadChip, { color: '#0d9488', backgroundColor: '#0d948815', marginTop: 4 }]}>🔍 Visited ({item.visit_count})</Text>
+        ) : null}
+        {(item.status === 'VISIT_BOOKED' || item.status === 'RE_VISIT') && item.site_visit_at ? (
+          <Text style={[styles.leadVisitDate, { color: item.status === 'RE_VISIT' ? '#a855f7' : '#06b6d4' }]}>
+            📅 {new Date(item.site_visit_at).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
+          </Text>
+        ) : null}
       </View>
       <View style={styles.rightCol}>
         <View style={styles.statusBadge}>
@@ -412,6 +426,21 @@ const styles = StyleSheet.create({
     color: Colors.textSecondary,
     marginTop: 4,
     fontWeight: '700',
+  },
+  leadChip: {
+    fontSize: 11,
+    color: Colors.primary,
+    fontWeight: '600',
+    backgroundColor: Colors.primary + '15',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 6,
+    overflow: 'hidden',
+  },
+  leadVisitDate: {
+    fontSize: 12,
+    fontWeight: '700',
+    marginTop: 4,
   },
   leadProject: {
     fontSize: 12,

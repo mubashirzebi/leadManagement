@@ -8,9 +8,14 @@ export interface ILead extends Document {
   email?: string;
   source: string;
   project?: string;
-  budget?: number;
+  budget?: string;
   city?: string;
-  status: 'NEW' | 'INVALID_NUMBER' | 'CALLBACK' | 'INTERESTED' | 'NOT_INTERESTED';
+  status: 'NEW' | 'CALLBACK' | 'INTERESTED' | 'VISIT_BOOKED' | 'VISITED' | 'RE_VISIT' | 'BOOKED' | 'NOT_INTERESTED' | 'INVALID_NUMBER';
+  callback_reason?: 'busy' | 'switched_off' | 'ringing' | 'disconnected';
+  property_status?: 'under_construction' | 'nearing_possession' | 'ready_to_move';
+  property_type?: string;
+  preferred_area?: string;
+  not_interested_reason?: 'too_expensive' | 'not_looking' | 'already_purchased' | 'bad_location' | 'fake_lead' | 'others';
   heat: 'HOT' | 'WARM' | 'COLD';
   next_reminder_at?: Date | null;
   next_reminder_remark?: string | null;
@@ -24,6 +29,15 @@ export interface ILead extends Document {
   facebook_page_name?: string | null;
   facebook_form_name?: string | null;
   custom_data?: Record<string, string>;
+  visit_history?: Array<{
+    scheduled_at: Date;
+    completed_at?: Date;
+    outcome: 'completed' | 'cancelled' | 'no_show';
+    cancellation_reason?: string;
+    notes?: string;
+    created_at: Date;
+  }>;
+  visit_count?: number;
   created_at: Date;
   updated_at: Date;
 }
@@ -36,9 +50,14 @@ const LeadSchema: Schema = new Schema({
   email: { type: String },
   source: { type: String, default: 'Manual' },
   project: { type: String },
-  budget: { type: Number },
+  budget: { type: String },
   city: { type: String },
-  status: { type: String, enum: ['NEW', 'INVALID_NUMBER', 'CALLBACK', 'INTERESTED', 'NOT_INTERESTED'], default: 'NEW' },
+  status: { type: String, enum: ['NEW', 'CALLBACK', 'INTERESTED', 'VISIT_BOOKED', 'VISITED', 'RE_VISIT', 'BOOKED', 'NOT_INTERESTED', 'INVALID_NUMBER'], default: 'NEW' },
+  callback_reason: { type: String, enum: ['busy', 'switched_off', 'ringing', 'disconnected'], default: null },
+  property_status: { type: String, enum: ['under_construction', 'nearing_possession', 'ready_to_move'], default: null },
+  property_type: { type: String, default: null },
+  preferred_area: { type: String, default: null },
+  not_interested_reason: { type: String, enum: ['too_expensive', 'not_looking', 'already_purchased', 'bad_location', 'fake_lead', 'others'], default: null },
   heat: { type: String, enum: ['HOT', 'WARM', 'COLD'], default: 'WARM' },
   next_reminder_at: { type: Date, default: null },
   next_reminder_remark: { type: String, default: null },
@@ -52,6 +71,15 @@ const LeadSchema: Schema = new Schema({
   facebook_page_name: { type: String, default: null },
   facebook_form_name: { type: String, default: null },
   custom_data: { type: Map, of: String, default: {} },
+  visit_history: [{
+    scheduled_at: { type: Date },
+    completed_at: { type: Date, default: null },
+    outcome: { type: String, enum: ['completed', 'cancelled', 'no_show'] },
+    cancellation_reason: { type: String, default: null },
+    notes: { type: String, default: null },
+    created_at: { type: Date, default: Date.now },
+  }],
+  visit_count: { type: Number, default: 0 },
 }, { timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' } });
 
 // Index on mobile and organization_id (not unique to support duplicate leads)

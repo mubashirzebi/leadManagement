@@ -20,7 +20,7 @@ const StatCard = ({ label, value, color }: { label: string, value: number, color
 );
 
 export const DashboardScreen = () => {
-  const [stats, setStats] = useState({ total: 0, new: 0, contacted: 0, qualified: 0, closed: 0 });
+  const [stats, setStats] = useState({ total: 0, new: 0, callback: 0, interested: 0, visit_booked: 0, visited: 0, re_visit: 0, visits_today: 0, booked: 0, not_interested: 0, invalid_number: 0 });
   const [activities, setActivities] = useState<ActivityLog[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -73,11 +73,50 @@ export const DashboardScreen = () => {
       <View style={styles.statsGrid}>
         <View style={styles.row}>
           <StatCard label="Total Leads" value={stats.total} color={Colors.primary} />
-          <StatCard label="New Leads" value={stats.new} color={Colors.secondary} />
+          <StatCard label="New" value={stats.new} color={Colors.secondary} />
         </View>
-        <View style={styles.row}>
-          <StatCard label="Qualified" value={stats.qualified} color={Colors.success} />
-          <StatCard label="Closed" value={stats.closed} color={Colors.textSecondary} />
+        <View style={[styles.row, { marginTop: -8 }]}>
+          <StatCard label={"Today's Visits"} value={stats.visits_today} color="#06b6d4" />
+          <View style={{ width: '47%' }} />
+        </View>
+        <View style={styles.pipelineSection}>
+          <Text style={styles.pipelineTitle}>Pipeline Status</Text>
+          <View style={styles.pipelineRow}>
+            <View style={[styles.pipelineStat, { borderLeftColor: '#3b82f6' }]}>
+              <Text style={[styles.pipelineValue, { color: '#3b82f6' }]}>{stats.callback}</Text>
+              <Text style={styles.pipelineLabel}>Callback</Text>
+            </View>
+            <View style={[styles.pipelineStat, { borderLeftColor: '#10b981' }]}>
+              <Text style={[styles.pipelineValue, { color: '#10b981' }]}>{stats.interested}</Text>
+              <Text style={styles.pipelineLabel}>Interested</Text>
+            </View>
+            <View style={[styles.pipelineStat, { borderLeftColor: '#06b6d4' }]}>
+              <Text style={[styles.pipelineValue, { color: '#06b6d4' }]}>{stats.visit_booked}</Text>
+              <Text style={styles.pipelineLabel}>Visit Booked</Text>
+            </View>
+            <View style={[styles.pipelineStat, { borderLeftColor: '#0d9488' }]}>
+              <Text style={[styles.pipelineValue, { color: '#0d9488' }]}>{stats.visited}</Text>
+              <Text style={styles.pipelineLabel}>Visited</Text>
+            </View>
+          </View>
+          <View style={styles.pipelineRow}>
+            <View style={[styles.pipelineStat, { borderLeftColor: '#a855f7' }]}>
+              <Text style={[styles.pipelineValue, { color: '#a855f7' }]}>{stats.re_visit}</Text>
+              <Text style={styles.pipelineLabel}>Re-visit</Text>
+            </View>
+            <View style={[styles.pipelineStat, { borderLeftColor: Colors.success }]}>
+              <Text style={[styles.pipelineValue, { color: Colors.success }]}>{stats.booked}</Text>
+              <Text style={styles.pipelineLabel}>Booked</Text>
+            </View>
+            <View style={[styles.pipelineStat, { borderLeftColor: Colors.error }]}>
+              <Text style={[styles.pipelineValue, { color: Colors.error }]}>{stats.not_interested}</Text>
+              <Text style={styles.pipelineLabel}>Not Interested</Text>
+            </View>
+            <View style={[styles.pipelineStat, { borderLeftColor: Colors.textSecondary }]}>
+              <Text style={[styles.pipelineValue, { color: Colors.textSecondary }]}>{stats.invalid_number}</Text>
+              <Text style={styles.pipelineLabel}>Invalid</Text>
+            </View>
+          </View>
         </View>
       </View>
 
@@ -159,6 +198,45 @@ const styles = StyleSheet.create({
     color: Colors.textSecondary,
     fontSize: 14,
     fontWeight: '600',
+  },
+  pipelineSection: {
+    backgroundColor: Colors.surface,
+    borderRadius: 20,
+    padding: 16,
+    marginTop: 4,
+  },
+  pipelineTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: Colors.textSecondary,
+    textTransform: 'uppercase',
+    marginBottom: 12,
+    letterSpacing: 0.5,
+  },
+  pipelineRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+  },
+  pipelineStat: {
+    flex: 1,
+    backgroundColor: Colors.background,
+    borderRadius: 12,
+    padding: 10,
+    marginHorizontal: 4,
+    borderLeftWidth: 3,
+    alignItems: 'center',
+  },
+  pipelineValue: {
+    fontSize: 20,
+    fontWeight: '800',
+  },
+  pipelineLabel: {
+    fontSize: 10,
+    color: Colors.textSecondary,
+    fontWeight: '600',
+    marginTop: 2,
+    textTransform: 'uppercase',
   },
   section: {
     padding: 24,
