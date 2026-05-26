@@ -2,6 +2,7 @@ import { Response } from 'express';
 import bcrypt from 'bcrypt';
 import User from '../models/User';
 import Lead from '../models/Lead';
+import Organization from '../models/Organization';
 import { AuthRequest } from '../middleware/auth';
 
 export const getTeamList = async (req: AuthRequest, res: Response) => {
@@ -125,6 +126,36 @@ export const updateTeamMember = async (req: AuthRequest, res: Response) => {
 
   } catch (error) {
     console.error('[Update Team Member Error]:', error);
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+};
+
+/**
+ * PATCH /users/week-start
+ * Superadmin updates the organization's week_start_day (0=Sun..6=Sat, default 1=Mon).
+ */
+export const updateWeekStart = async (req: AuthRequest, res: Response) => {
+  try {
+    const organization_id = req.user?.organization_id;
+
+    if (req.user?.role !== 'superadmin') {
+      return res.status(403).json({ success: false, message: 'Only superadmin can change week start day' });
+    }
+
+    if (!organization_id) {
+      return res.status(400).json({ success: false, message: 'No organization' });
+    }
+
+    const { week_start_day } = req.body;
+    if (typeof week_start_day !== 'number' || week_start_day < 0 || week_start_day > 6) {
+      return res.status(400).json({ success: false, message: 'week_start_day must be 0 (Sun) to 6 (Sat)' });
+    }
+
+    await Organization.findByIdAndUpdate(organization_id, { week_start_day });
+
+    res.json({ success: true, message: 'Week start day updated', data: { week_start_day } });
+  } catch (error) {
+    console.error('[Update Week Start Error]:', error);
     res.status(500).json({ success: false, message: 'Server error' });
   }
 };

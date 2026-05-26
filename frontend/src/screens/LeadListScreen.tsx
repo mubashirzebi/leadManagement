@@ -12,12 +12,12 @@ import {
   Modal,
   Alert,
 } from 'react-native';
-import { Colors } from '../theme/colors';
+import { Colors, STATUS_COLORS } from '../theme/colors';
 import client from '../api/client';
 import { Lead, Staff } from '../types';
 import { useAuth } from '../context/AuthContext';
 
-type LeadViewMode = 'organization' | 'mine';
+type LeadViewMode = 'organization' | 'mine' | 'unassigned';
 
 export const LeadListScreen = ({ navigation }: { navigation: any }) => {
   const { user } = useAuth();
@@ -30,6 +30,7 @@ export const LeadListScreen = ({ navigation }: { navigation: any }) => {
   const [team, setTeam] = useState<Staff[]>([]);
   const [assignOpen, setAssignOpen] = useState(false);
   const [assignLead, setAssignLead] = useState<Lead | null>(null);
+  const [unassignedCount, setUnassignedCount] = useState(0);
 
   const statuses = ['All', 'NEW', 'CALLBACK', 'INTERESTED', 'VISIT_BOOKED', 'RE_VISIT', 'BOOKED', 'NOT_INTERESTED', 'INVALID_NUMBER'];
   const heats = ['All', 'HOT', 'WARM', 'COLD'];
@@ -43,6 +44,18 @@ export const LeadListScreen = ({ navigation }: { navigation: any }) => {
       if (res.data.success) setTeam(res.data.data);
     } catch (e) {
       console.log('Fetch team failed', e);
+    }
+  };
+
+  const fetchUnassignedCount = async () => {
+    if (!canUseManagerViews) return;
+    try {
+      const res = await client.get('/leads/stats');
+      if (res.data.success) {
+        setUnassignedCount(res.data.data.unassigned_leads ?? 0);
+      }
+    } catch (e) {
+      console.log('Fetch unassigned count failed', e);
     }
   };
 
@@ -60,6 +73,9 @@ export const LeadListScreen = ({ navigation }: { navigation: any }) => {
       if (canUseManagerViews && viewMode === 'mine' && user?.id) {
         params.push(`assigned_to=${encodeURIComponent(user.id)}`);
       }
+      if (viewMode === 'unassigned') {
+        params.push('assigned_to=null');
+      }
 
       const response = await client.get(`/leads?${params.join('&')}`);
       if (response.data.success) {
@@ -75,9 +91,11 @@ export const LeadListScreen = ({ navigation }: { navigation: any }) => {
   useEffect(() => {
     fetchLeads();
     fetchTeam();
+    fetchUnassignedCount();
     const unsubscribe = navigation.addListener('focus', () => {
       fetchLeads();
       fetchTeam();
+      fetchUnassignedCount();
     });
     return unsubscribe;
   }, [navigation, search, selectedStatus, selectedTemp, viewMode, user?.id, user?.role]);
@@ -166,8 +184,17 @@ export const LeadListScreen = ({ navigation }: { navigation: any }) => {
         ) : null}
       </View>
       <View style={styles.rightCol}>
-        <View style={styles.statusBadge}>
-          <Text style={styles.statusText}>{item.status}</Text>
+        <View style={[
+          styles.statusBadge,
+          {
+            borderColor: STATUS_COLORS[item.status] || Colors.border,
+            backgroundColor: (STATUS_COLORS[item.status] || Colors.primary) + '18',
+          },
+        ]}>
+          <Text style={[
+            styles.statusText,
+            { color: STATUS_COLORS[item.status] || Colors.textSecondary },
+          ]}>{item.status}</Text>
         </View>
         {canAssignLeads && (
           <TouchableOpacity style={styles.assignBtn} onPress={() => openAssign(item)}>
@@ -225,6 +252,20 @@ export const LeadListScreen = ({ navigation }: { navigation: any }) => {
                 styles.segmentText,
                 viewMode === 'mine' && styles.segmentTextActive
               ]}>My Leads</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={() => setViewMode('unassigned')}
+              style={[
+                styles.segmentButton,
+                viewMode === 'unassigned' && styles.segmentButtonActive,
+                unassignedCount > 0 && styles.segmentButtonAlert,
+              ]}
+            >
+              <Text style={[
+                styles.segmentText,
+                viewMode === 'unassigned' && styles.segmentTextActive,
+                unassignedCount > 0 && styles.segmentTextAlert,
+              ]}>Unassigned {unassignedCount > 0 ? `(${unassignedCount})` : ''}</Text>
             </TouchableOpacity>
           </View>
         )}
@@ -354,6 +395,10 @@ const styles = StyleSheet.create({
   segmentButtonActive: {
     backgroundColor: Colors.primary,
   },
+  segmentButtonAlert: {
+    borderWidth: 1.5,
+    borderColor: '#f59e0b',
+  },
   segmentText: {
     color: Colors.textSecondary,
     fontSize: 13,
@@ -362,6 +407,9 @@ const styles = StyleSheet.create({
   },
   segmentTextActive: {
     color: Colors.text,
+  },
+  segmentTextAlert: {
+    color: '#f59e0b',
   },
   filterBar: {
     marginTop: 16,

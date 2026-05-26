@@ -40,6 +40,7 @@ export interface ILead extends Document {
     created_at: Date;
   }>;
   visit_count?: number;
+  revisit_count?: number;
   created_at: Date;
   updated_at: Date;
 }
@@ -84,6 +85,7 @@ const LeadSchema: Schema = new Schema({
     created_at: { type: Date, default: Date.now },
   }],
   visit_count: { type: Number, default: 0 },
+  revisit_count: { type: Number, default: 0 },
 }, { timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' } });
 
 // Index on mobile and organization_id (not unique to support duplicate leads)

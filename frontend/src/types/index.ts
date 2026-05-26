@@ -50,6 +50,7 @@ export interface Lead {
     created_at: string;
   }>;
   visit_count?: number;
+  revisit_count?: number;
   created_at: string;
   updated_at?: string;
 }
@@ -75,4 +76,22 @@ export interface Staff {
   _id: string;
   name: string;
   mobile: string;
+}
+
+export interface WeekDay {
+  label: string;        // "Mon", "Tue", ...
+  label_full: string;   // "Monday", "Tuesday", ...
+  day_date: string;     // "2026-05-26"
+  date_num: number;     // 26
+  month_short: string;  // "May"
+  count: number;
+  is_today: boolean;
+  is_weekend: boolean;
+}
+
+export interface WeekVisitsResponse {
+  days: WeekDay[];
+  total: number;
+  week_start: string;
+  week_end: string;
 }

@@ -3,6 +3,7 @@ import mongoose from 'mongoose';
 import Lead from '../models/Lead';
 import ActivityLog from '../models/ActivityLog';
 import Organization from '../models/Organization';
+import User from '../models/User';
 import { AuthRequest } from '../middleware/auth';
 
 export const createLead = async (req: AuthRequest, res: Response) => {
@@ -80,11 +81,12 @@ export const bulkAssignLeads = async (req: AuthRequest, res: Response) => {
 export const getDashboardStats = async (req: AuthRequest, res: Response) => {
   try {
     const organization_id = req.user?.organization_id;
+    const { from, to } = req.query;
 
     if (!organization_id || !mongoose.Types.ObjectId.isValid(organization_id as string)) {
       return res.json({
         success: true,
-        data: { total: 0, new: 0, callback: 0, interested: 0, visit_booked: 0, visited: 0, re_visit: 0, visits_today: 0, booked: 0, not_interested: 0, invalid_number: 0 }
+        data: { total: 0, new: 0, callback: 0, interested: 0, visit_booked: 0, visited: 0, re_visit_booked: 0, revisited: 0, visits_today: 0, total_visited: 0, booked: 0, not_interested: 0, invalid_number: 0, unassigned_leads: 0 }
       });
     }
 
@@ -94,6 +96,11 @@ export const getDashboardStats = async (req: AuthRequest, res: Response) => {
     // Staff can only see their own stats
     if (req.user?.role === 'staff') {
       matchQuery.assigned_to = new mongoose.Types.ObjectId(req.user.id);
+    }
+
+    // Time filter — applies to all aggregations below
+    if (from && to) {
+      matchQuery.created_at = { $gte: new Date(from as string), $lte: new Date(to as string) };
     }
 
     // Exclude leads belonging to unlinked/inactive Facebook pages (soft delete/hide)
@@ -117,19 +124,34 @@ export const getDashboardStats = async (req: AuthRequest, res: Response) => {
     todayStart.setHours(0, 0, 0, 0);
     const todayEnd = new Date();
     todayEnd.setHours(23, 59, 59, 999);
-    const visitsTodayQuery = {
-      ...matchQuery,
+    const visitsTodayQuery: any = {
+      organization_id: new mongoose.Types.ObjectId(organization_id as string),
       status: { $in: ['VISIT_BOOKED', 'RE_VISIT'] },
       site_visit_at: { $gte: todayStart, $lte: todayEnd },
     };
+    if (req.user?.role === 'staff') {
+      visitsTodayQuery.assigned_to = new mongoose.Types.ObjectId(req.user.id);
+    }
     const visitsToday = await Lead.countDocuments(visitsTodayQuery);
 
-    // Sum all visit_count values for total visits metric (multi-project visits count per project)
+    // Sum all visit_count values for total visited metric (multi-project visits count per project)
     const totalVisitsAgg = await Lead.aggregate([
       { $match: { ...matchQuery, visit_count: { $gt: 0 } } },
       { $group: { _id: null, total: { $sum: '$visit_count' } } }
     ]);
     const totalVisits = totalVisitsAgg.length > 0 ? totalVisitsAgg[0].total : 0;
+
+    // Sum all revisit_count values for revisited metric
+    const totalRevisitedAgg = await Lead.aggregate([
+      { $match: { ...matchQuery, revisit_count: { $gt: 0 } } },
+      { $group: { _id: null, total: { $sum: '$revisit_count' } } }
+    ]);
+    const totalRevisited = totalRevisitedAgg.length > 0 ? totalRevisitedAgg[0].total : 0;
+
+    // Count unassigned leads (exclude dead leads that don't need assignment)
+    const unassignedMatch: any = { ...matchQuery, assigned_to: null };
+    unassignedMatch.status = { $nin: ['NOT_INTERESTED', 'INVALID_NUMBER'] };
+    const unassignedCount = await Lead.countDocuments(unassignedMatch);
 
     const formattedStats = {
       total: stats.reduce((acc, curr) => acc + curr.count, 0),
@@ -137,18 +159,114 @@ export const getDashboardStats = async (req: AuthRequest, res: Response) => {
       callback: stats.find(s => s._id === 'CALLBACK')?.count || 0,
       interested: stats.find(s => s._id === 'INTERESTED')?.count || 0,
       visit_booked: stats.find(s => s._id === 'VISIT_BOOKED')?.count || 0,
-      visited: stats.find(s => s._id === 'VISITED')?.count || 0,
-      re_visit: stats.find(s => s._id === 'RE_VISIT')?.count || 0,
+      visited: totalVisits,
+      re_visit_booked: stats.find(s => s._id === 'RE_VISIT')?.count || 0,
+      revisited: totalRevisited,
       visits_today: visitsToday,
-      total_visits: totalVisits,
+      total_visited: totalVisits,
       booked: stats.find(s => s._id === 'BOOKED')?.count || 0,
       not_interested: stats.find(s => s._id === 'NOT_INTERESTED')?.count || 0,
       invalid_number: stats.find(s => s._id === 'INVALID_NUMBER')?.count || 0,
+      unassigned_leads: unassignedCount,
     };
 
     res.json({ success: true, data: formattedStats });
   } catch (error) {
     console.error('[Get Dashboard Stats Error]:', error);
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+};
+
+export const getPerUserDashboardStats = async (req: AuthRequest, res: Response) => {
+  try {
+    const organization_id = req.user?.organization_id;
+    const { from, to } = req.query;
+
+    // Only admins and superadmins can view per-user stats
+    if (req.user?.role !== 'admin' && req.user?.role !== 'superadmin') {
+      return res.status(403).json({ success: false, message: 'Access denied' });
+    }
+
+    if (!organization_id || !mongoose.Types.ObjectId.isValid(organization_id as string)) {
+      return res.json({ success: true, data: [] });
+    }
+
+    const orgId = new mongoose.Types.ObjectId(organization_id as string);
+    const matchQuery: any = { organization_id: orgId };
+
+    // Time filter
+    if (from && to) {
+      matchQuery.created_at = { $gte: new Date(from as string), $lte: new Date(to as string) };
+    }
+
+    // Fetch all active users in the org (staff + admin + superadmin)
+    const users = await User.find({
+      organization_id: orgId,
+      role: { $in: ['staff', 'admin', 'superadmin'] },
+      status: 'active',
+    }).select('name role mobile');
+
+    // Per-user aggregation: count leads by assigned_to + status, plus total visits & revisits
+    const perUserAgg = await Lead.aggregate([
+      { $match: { ...matchQuery, assigned_to: { $ne: null } } },
+      {
+        $group: {
+          _id: { assigned_to: '$assigned_to', status: '$status' },
+          count: { $sum: 1 },
+          visits: { $sum: '$visit_count' },
+          revisits: { $sum: '$revisit_count' },
+        },
+      },
+    ]);
+
+    // Build result per user
+    const userStatsMap: Record<string, any> = {};
+
+    perUserAgg.forEach((row: any) => {
+      const userId = row._id.assigned_to.toString();
+      const status = row._id.status;
+      const count = row.count;
+      const visits = row.visits || 0;
+      const revisits = row.revisits || 0;
+
+      if (!userStatsMap[userId]) {
+        userStatsMap[userId] = {
+          NEW: 0, CALLBACK: 0, INTERESTED: 0, VISIT_BOOKED: 0,
+          VISITED: 0, RE_VISIT: 0, BOOKED: 0, NOT_INTERESTED: 0, INVALID_NUMBER: 0,
+          total_leads: 0,
+          total_visits: 0,
+          total_revisited: 0,
+        };
+      }
+
+      userStatsMap[userId][status] = count;
+      userStatsMap[userId].total_leads += count;
+      userStatsMap[userId].total_visits += visits;
+      userStatsMap[userId].total_revisited += revisits;
+    });
+
+    // Merge with user names
+    const result = users.map((u: any) => {
+      const uid = u._id.toString();
+      const stats = userStatsMap[uid] || {
+        NEW: 0, CALLBACK: 0, INTERESTED: 0, VISIT_BOOKED: 0,
+        VISITED: 0, RE_VISIT: 0, BOOKED: 0, NOT_INTERESTED: 0, INVALID_NUMBER: 0,
+        total_leads: 0,
+        total_visits: 0,
+        total_revisited: 0,
+      };
+      return {
+        _id: uid,
+        name: u.name,
+        role: u.role,
+        mobile: u.mobile,
+        ...stats,
+      };
+    });
+
+    res.json({ success: true, data: result });
+  } catch (error) {
+    console.error('[Get Per-User Dashboard Stats Error]:', error);
     res.status(500).json({ success: false, message: 'Server error' });
   }
 };
@@ -182,7 +300,11 @@ export const getLeads = async (req: AuthRequest, res: Response) => {
       }
     }
 
-    if (status) query.status = status;
+    if (req.query.statuses) {
+      query.status = { $in: (req.query.statuses as string).split(',') };
+    } else if (status) {
+      query.status = status;
+    }
     if (heat) query.heat = heat;
     if (search) {
       query.$or = [
@@ -273,8 +395,9 @@ export const updateLead = async (req: AuthRequest, res: Response) => {
     if (budget !== undefined) updateData.budget = budget;
 
     const query: any = { _id: id, organization_id };
-    if (req.user?.role === 'staff') {
-      query.assigned_to = req.user.id;
+    // Only superadmin can update any lead; staff & admin must be assigned to it
+    if (req.user?.role !== 'superadmin') {
+      query.assigned_to = req.user!.id;
     }
 
     // Fetch existing lead for visit_history context
@@ -297,8 +420,17 @@ export const updateLead = async (req: AuthRequest, res: Response) => {
         notes: notesMap[proj] || null,
         created_at: new Date(),
       }));
+
+      // Per-project revisit detection: check which projects were previously visited
+      const prevProjects = new Set(
+        (existingLead.visit_history || [])
+          .filter(v => v.outcome === 'completed' && v.project)
+          .map(v => v.project)
+      );
+      const revisitCount = projects.filter(p => prevProjects.has(p)).length;
+
       updateData.$push = { visit_history: { $each: entries } };
-      updateData.$inc = { visit_count: entries.length };
+      updateData.$inc = { visit_count: entries.length, revisit_count: revisitCount };
     }
     // Push visit_history entry when visit is cancelled
     if (activity_type === 'visit_cancelled') {
@@ -416,6 +548,109 @@ export const getOrgLogs = async (req: AuthRequest, res: Response) => {
     res.json({ success: true, data: logs });
   } catch (error) {
     console.error('[Get Org Logs Error]:', error);
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+};
+
+/**
+ * GET /leads/week-visits
+ * Returns 7-day breakdown of scheduled visits (VISIT_BOOKED + RE_VISIT) for the current week.
+ * Week start is determined by org's week_start_day (default 1 = Monday).
+ * Accessible to admin & superadmin only.
+ */
+export const getWeekVisits = async (req: AuthRequest, res: Response) => {
+  try {
+    const organization_id = req.user?.organization_id;
+    if (!organization_id || !mongoose.Types.ObjectId.isValid(organization_id as string)) {
+      return res.json({ success: true, data: [] });
+    }
+
+    // Only managers can see week visits (admin + superadmin)
+    if (req.user?.role !== 'admin' && req.user?.role !== 'superadmin') {
+      return res.status(403).json({ success: false, message: 'Access denied' });
+    }
+
+    const orgId = new mongoose.Types.ObjectId(organization_id as string);
+
+    // Read org preferences; defaults: week_start_day=1 (Mon), tz=330 min (IST)
+    const org = await Organization.findById(orgId).select('week_start_day timezone_offset');
+    const weekStartDay: number = org?.week_start_day ?? 1;
+    const tzOffsetMs: number = (org?.timezone_offset ?? 330) * 60 * 1000; // minutes → ms
+
+    // ── Compute current week range in LOCAL time ──
+    // "Today" in local: now.getTime() + tzOffsetMs → UTC date of that instant
+    const nowLocal = new Date(Date.now() + tzOffsetMs);
+    const todayLocal = new Date(Date.UTC(nowLocal.getUTCFullYear(), nowLocal.getUTCMonth(), nowLocal.getUTCDate()));
+
+    const currentDayLocal = todayLocal.getUTCDay(); // 0=Sun..6=Sat in local
+    const daysBack = (currentDayLocal - weekStartDay + 7) % 7;
+    const weekStartLocal = new Date(todayLocal);
+    weekStartLocal.setUTCDate(todayLocal.getUTCDate() - daysBack); // midnight Mon local
+
+    const weekEndLocal = new Date(weekStartLocal);
+    weekEndLocal.setUTCDate(weekStartLocal.getUTCDate() + 7); // midnight next Mon local
+
+    // Convert local boundaries to UTC for MongoDB query
+    const weekStartUtc = new Date(weekStartLocal.getTime() - tzOffsetMs);
+    const weekEndUtc = new Date(weekEndLocal.getTime() - tzOffsetMs);
+
+    // ── Fetch all matching leads (no aggregation, group in JS with timezone) ──
+    const visits = await Lead.find(
+      {
+        organization_id: orgId,
+        status: { $in: ['VISIT_BOOKED', 'RE_VISIT'] },
+        site_visit_at: { $gte: weekStartUtc, $lt: weekEndUtc },
+      },
+      { site_visit_at: 1 }
+    ).lean();
+
+    // Group by local day: for each visit, shift site_visit_at to local, get UTCDay
+    const countMap: Record<number, number> = {}; // 0..6 = relative day index in week
+    const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    const DAY_LABELS_FULL = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
+    for (const v of visits) {
+      const utcDate = new Date(v.site_visit_at!);
+      const localDate = new Date(utcDate.getTime() + tzOffsetMs);
+      const localDow = localDate.getUTCDay(); // 0=Sun..6=Sat
+      // Map to week index: 0 = weekStartDay, ..., 6 = weekStartDay+6
+      const index = ((localDow - weekStartDay + 7) % 7);
+      countMap[index] = (countMap[index] || 0) + 1;
+    }
+
+    // ── Build 7-day response ──
+    const result = [];
+    for (let i = 0; i < 7; i++) {
+      const dayDateLocal = new Date(weekStartLocal);
+      dayDateLocal.setUTCDate(weekStartLocal.getUTCDate() + i);
+
+      const dow = (weekStartDay + i) % 7;
+      const count = countMap[i] || 0;
+      const dayNum = dayDateLocal.getUTCDate();
+      const monthName = dayDateLocal.toLocaleString('en-US', { month: 'short', timeZone: 'UTC' });
+
+      const isToday =
+        dayDateLocal.getUTCFullYear() === todayLocal.getUTCFullYear() &&
+        dayDateLocal.getUTCMonth() === todayLocal.getUTCMonth() &&
+        dayDateLocal.getUTCDate() === todayLocal.getUTCDate();
+
+      result.push({
+        label: DAY_LABELS[dow],
+        label_full: DAY_LABELS_FULL[dow],
+        day_date: dayDateLocal.toISOString().split('T')[0],
+        date_num: dayNum,
+        month_short: monthName,
+        count,
+        is_today: isToday,
+        is_weekend: dow === 0 || dow === 6,
+      });
+    }
+
+    const total = result.reduce((sum, d) => sum + d.count, 0);
+
+    res.json({ success: true, data: { days: result, total, week_start: weekStartUtc.toISOString(), week_end: weekEndUtc.toISOString() } });
+  } catch (error) {
+    console.error('[Get Week Visits Error]:', error);
     res.status(500).json({ success: false, message: 'Server error' });
   }
 };
