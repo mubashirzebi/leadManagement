@@ -7,6 +7,7 @@ export interface ILead extends Document {
   mobile: string;
   email?: string;
   source: string;
+  project_id?: mongoose.Types.ObjectId;
   project?: string;
   budget?: string;
   city?: string;
@@ -34,6 +35,7 @@ export interface ILead extends Document {
     completed_at?: Date;
     outcome: 'completed' | 'cancelled' | 'no_show';
     cancellation_reason?: string;
+    project?: string;
     notes?: string;
     created_at: Date;
   }>;
@@ -49,6 +51,7 @@ const LeadSchema: Schema = new Schema({
   mobile: { type: String, required: true },
   email: { type: String },
   source: { type: String, default: 'Manual' },
+  project_id: { type: Schema.Types.ObjectId, ref: 'Project', default: null },
   project: { type: String },
   budget: { type: String },
   city: { type: String },
@@ -76,6 +79,7 @@ const LeadSchema: Schema = new Schema({
     completed_at: { type: Date, default: null },
     outcome: { type: String, enum: ['completed', 'cancelled', 'no_show'] },
     cancellation_reason: { type: String, default: null },
+    project: { type: String, default: null },
     notes: { type: String, default: null },
     created_at: { type: Date, default: Date.now },
   }],

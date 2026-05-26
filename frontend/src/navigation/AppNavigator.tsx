@@ -13,6 +13,7 @@ import { SuperAdminScreen } from '../screens/SuperAdminScreen';
 import { ProfileScreen } from '../screens/ProfileScreen';
 import { SuspendedScreen } from '../screens/SuspendedScreen';
 import { TeamManagementScreen } from '../screens/TeamManagementScreen';
+import { ProjectManagementScreen } from '../screens/ProjectManagementScreen';
 import { View, Text } from 'react-native';
 import { Colors } from '../theme/colors';
 
@@ -118,6 +119,7 @@ export const AppNavigator = () => {
               <Stack.Screen name="Main" component={MainTabs} />
               <Stack.Screen name="LeadDetail" component={LeadDetailScreen} />
               <Stack.Screen name="AddLead" component={AddLeadScreen} />
+              <Stack.Screen name="ProjectManagement" component={ProjectManagementScreen} />
               {/* Optional: keep PasswordChange in stack for manual changes */}
               <Stack.Screen name="PasswordChange" component={PasswordChangeScreen} />
             </>

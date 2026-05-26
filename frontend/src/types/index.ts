@@ -1,9 +1,23 @@
+export interface Project {
+  _id: string;
+  organization_id: string;
+  name: string;
+  location?: string;
+  builder?: string;
+  description?: string;
+  configurations?: Array<{ type: string; size?: string; price?: string }>;
+  status: 'active' | 'inactive';
+  created_at: string;
+  updated_at: string;
+}
+
 export interface Lead {
   _id: string;
   name: string;
   mobile: string;
   email?: string;
   source: string;
+  project_id?: string;
   project?: string;
   budget?: string;
   city?: string;
@@ -31,6 +45,7 @@ export interface Lead {
     completed_at?: string;
     outcome: 'completed' | 'cancelled' | 'no_show';
     cancellation_reason?: string;
+    project?: string;
     notes?: string;
     created_at: string;
   }>;

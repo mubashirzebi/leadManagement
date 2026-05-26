@@ -10,6 +10,7 @@ import {
 import { Colors } from '../theme/colors';
 import client from '../api/client';
 import { useAuth } from '../context/AuthContext';
+import { useNavigation } from '@react-navigation/native';
 import { ActivityLog } from '../types';
 
 const StatCard = ({ label, value, color }: { label: string, value: number, color: string }) => (
@@ -20,11 +21,12 @@ const StatCard = ({ label, value, color }: { label: string, value: number, color
 );
 
 export const DashboardScreen = () => {
-  const [stats, setStats] = useState({ total: 0, new: 0, callback: 0, interested: 0, visit_booked: 0, visited: 0, re_visit: 0, visits_today: 0, booked: 0, not_interested: 0, invalid_number: 0 });
+  const [stats, setStats] = useState({ total: 0, new: 0, callback: 0, interested: 0, visit_booked: 0, visited: 0, re_visit: 0, visits_today: 0, total_visits: 0, booked: 0, not_interested: 0, invalid_number: 0 });
   const [activities, setActivities] = useState<ActivityLog[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const { user } = useAuth();
+  const navigation = useNavigation<any>();
 
   const fetchData = async () => {
     setLoading(true);
@@ -77,7 +79,7 @@ export const DashboardScreen = () => {
         </View>
         <View style={[styles.row, { marginTop: -8 }]}>
           <StatCard label={"Today's Visits"} value={stats.visits_today} color="#06b6d4" />
-          <View style={{ width: '47%' }} />
+          <StatCard label="Total Visits" value={stats.total_visits} color="#0d9488" />
         </View>
         <View style={styles.pipelineSection}>
           <Text style={styles.pipelineTitle}>Pipeline Status</Text>
@@ -119,6 +121,17 @@ export const DashboardScreen = () => {
           </View>
         </View>
       </View>
+
+      <TouchableOpacity
+        style={styles.manageBtn}
+        onPress={() => navigation.navigate('ProjectManagement')}
+      >
+        <Text style={styles.manageBtnText}>
+          {user?.role === 'admin' || user?.role === 'superadmin'
+            ? '🏗️ Manage Projects'
+            : '🏗️ Project Catalog'}
+        </Text>
+      </TouchableOpacity>
 
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>Recent Activity</Text>
@@ -317,6 +330,21 @@ const styles = StyleSheet.create({
   retrySmallTxt: {
     color: '#fff',
     fontSize: 12,
+    fontWeight: '700',
+  },
+  manageBtn: {
+    backgroundColor: Colors.surface,
+    marginHorizontal: 24,
+    marginTop: 16,
+    padding: 18,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: Colors.primary,
+    alignItems: 'center',
+  },
+  manageBtnText: {
+    color: Colors.primary,
+    fontSize: 16,
     fontWeight: '700',
   },
 });

@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useRef, useState } from 'react';
 import {
   StyleSheet,
   View,
@@ -16,7 +16,8 @@ import DateTimePicker from '@react-native-community/datetimepicker';
 import { Colors } from '../theme/colors';
 import client from '../api/client';
 import { useAuth } from '../context/AuthContext';
-import { Lead, ActivityLog, Staff } from '../types';
+import { Lead, ActivityLog, Staff, Project } from '../types';
+import { ProjectPickerModal } from '../components/ProjectPickerModal';
 
 type RouteParams = { params: { lead: Lead } };
 type NavigationProp = { goBack: () => void };
@@ -77,6 +78,8 @@ export const LeadDetailScreen = ({ route, navigation }: { route: RouteParams; na
   const [propertyTypeDraft, setPropertyTypeDraft] = React.useState('');
   const [preferredAreaDraft, setPreferredAreaDraft] = React.useState('');
   const [projectDraft, setProjectDraft] = React.useState('');
+  const [projectPickerOpen, setProjectPickerOpen] = React.useState(false);
+  const [projectIdDraft, setProjectIdDraft] = React.useState<string | null>(null);
   const [budgetDraft, setBudgetDraft] = React.useState('');
   const [notInterestedReasonDraft, setNotInterestedReasonDraft] = React.useState<Lead['not_interested_reason']>(undefined);
   const [editInterestOpen, setEditInterestOpen] = React.useState(false);
@@ -91,7 +94,12 @@ export const LeadDetailScreen = ({ route, navigation }: { route: RouteParams; na
   const [sourceExpanded, setSourceExpanded] = React.useState(false);
   // Visit outcome states
   const [markDoneOpen, setMarkDoneOpen] = React.useState(false);
-  const [markDoneNotes, setMarkDoneNotes] = React.useState('');
+  const [markDoneNotes, setMarkDoneNotes] = useState<Record<string, string>>({});
+  const [markDoneProjects, setMarkDoneProjects] = useState<string[]>([]);
+  const [activeNoteProject, setActiveNoteProject] = useState<string | null>(null);
+  const [chipInputText, setChipInputText] = useState('');
+  const chipInputRef = useRef<TextInput>(null);
+  const [catalogProjects, setCatalogProjects] = useState<Project[]>([]);
   const [cancelVisitOpen, setCancelVisitOpen] = React.useState(false);
   const [cancelReason, setCancelReason] = React.useState<string | null>(null);
   const [rescheduleOpen, setRescheduleOpen] = React.useState(false);
@@ -181,6 +189,7 @@ export const LeadDetailScreen = ({ route, navigation }: { route: RouteParams; na
     setPropertyStatusDraft(lead.property_status || undefined);
     setPropertyTypeDraft(lead.property_type || '');
     setProjectDraft(lead.project || '');
+    setProjectIdDraft(lead.project_id || null);
     setBudgetDraft(lead.budget || '');
     setPreferredAreaDraft(lead.preferred_area || '');
     setEditInterestOpen(true);
@@ -191,6 +200,7 @@ export const LeadDetailScreen = ({ route, navigation }: { route: RouteParams; na
     setPropertyStatusDraft(undefined);
     setPropertyTypeDraft('');
     setProjectDraft('');
+    setProjectIdDraft(null);
     setBudgetDraft('');
     setPreferredAreaDraft('');
   };
@@ -202,6 +212,7 @@ export const LeadDetailScreen = ({ route, navigation }: { route: RouteParams; na
       if (propertyStatusDraft) payload.property_status = propertyStatusDraft;
       if (propertyTypeDraft) payload.property_type = propertyTypeDraft;
       if (projectDraft) payload.project = projectDraft;
+      if (projectIdDraft) payload.project_id = projectIdDraft;
       if (budgetDraft) payload.budget = budgetDraft;
       if (preferredAreaDraft) payload.preferred_area = preferredAreaDraft;
       const response = await client.patch(`/leads/${lead._id}`, payload);
@@ -218,6 +229,7 @@ export const LeadDetailScreen = ({ route, navigation }: { route: RouteParams; na
     setPropertyTypeDraft('');
     setPreferredAreaDraft('');
     setProjectDraft('');
+    setProjectIdDraft(null);
     setBudgetDraft('');
     setNotInterestedReasonDraft(undefined);
     const visitDate = new Date(); visitDate.setHours(visitDate.getHours() + 2);
@@ -235,6 +247,7 @@ export const LeadDetailScreen = ({ route, navigation }: { route: RouteParams; na
     setPropertyTypeDraft('');
     setPreferredAreaDraft('');
     setProjectDraft('');
+    setProjectIdDraft(null);
     setBudgetDraft('');
     setNotInterestedReasonDraft(undefined);
     setVisitNativePickerMode(null);
@@ -287,26 +300,58 @@ export const LeadDetailScreen = ({ route, navigation }: { route: RouteParams; na
 
   // === VISIT OUTCOME HANDLERS ===
 
-  const openMarkDone = () => {
-    setMarkDoneNotes('');
+  const openMarkDone = async () => {
+    setMarkDoneNotes({});
+    setMarkDoneProjects(lead.project ? [lead.project] : []);
+    setChipInputText('');
     setMarkDoneOpen(true);
+    try {
+      const res = await client.get('/projects?status=active');
+      if (res.data.success) setCatalogProjects(res.data.data);
+    } catch { setCatalogProjects([]); }
   };
 
   const closeMarkDone = () => {
     setMarkDoneOpen(false);
-    setMarkDoneNotes('');
+    setMarkDoneNotes({});
+    setMarkDoneProjects([]);
+    setChipInputText('');
+  };
+
+  const addProjectChip = () => {
+    const trimmed = chipInputText.trim().replace(/,+$/, '');
+    if (!trimmed) return;
+    const newProjects = trimmed.split(',').map(p => p.trim()).filter(p => p.length > 0);
+    setMarkDoneProjects(prev => [...prev, ...newProjects.filter(p => !prev.includes(p))]);
+    setChipInputText('');
+  };
+
+  const removeProjectChip = (index: number) => {
+    setMarkDoneProjects(prev => {
+      const removed = prev[index];
+      const next = prev.filter((_, i) => i !== index);
+      // Also clean up the note for the removed project
+      if (removed) {
+        setMarkDoneNotes(n => { const c = { ...n }; delete c[removed]; return c; });
+      }
+      return next;
+    });
   };
 
   const handleMarkVisitDone = async () => {
     setUpdating(true);
     try {
+      const projectList = markDoneProjects.length > 0
+        ? markDoneProjects.join(', ')
+        : 'site visit';
       await client.patch(`/leads/${lead._id}`, {
         status: 'VISITED',
         site_visit_at: null,
         next_reminder_at: null,
-        visit_notes: markDoneNotes.trim() || null,
+        visit_projects: markDoneProjects,
+        visit_notes: markDoneNotes,
         activity_type: 'visit_completed',
-        activity_content: `Site visit completed on ${new Date(lead.site_visit_at!).toLocaleDateString()}`,
+        activity_content: `Site visit completed — ${projectList} on ${new Date(lead.site_visit_at!).toLocaleDateString()}`,
       });
       await client.delete(`/reminders?lead_id=${lead._id}`).catch(() => {});
       closeMarkDone();
@@ -433,7 +478,14 @@ export const LeadDetailScreen = ({ route, navigation }: { route: RouteParams; na
                   ))}
                 </View>
                 <TextInput value={propertyTypeDraft} onChangeText={setPropertyTypeDraft} placeholder="Property Type (e.g. 2BHK, Villa)" placeholderTextColor={Colors.textSecondary} style={styles.dlgTextInput} />
-                <TextInput value={projectDraft} onChangeText={setProjectDraft} placeholder="Project Interested In" placeholderTextColor={Colors.textSecondary} style={styles.dlgTextInput} />
+                <TouchableOpacity
+                  onPress={() => { setProjectIdDraft(null); setProjectPickerOpen(true); }}
+                  style={[styles.dlgTextInput, { justifyContent: 'center', paddingVertical: 14 }]}
+                >
+                  <Text style={{ color: projectDraft ? Colors.text : Colors.textSecondary, fontSize: 14 }}>
+                    {projectDraft || 'Project Interested In (tap to select)'}
+                  </Text>
+                </TouchableOpacity>
                 <Text style={[styles.dlgFieldLabel, { marginTop: 0 }]}>Budget</Text>
                 <View style={styles.dlgOptionRow}>
                   {['30L', '50L', '80L', '1 Cr', '1.5 Cr', '2 Cr+'].map((opt) => (
@@ -507,6 +559,7 @@ export const LeadDetailScreen = ({ route, navigation }: { route: RouteParams; na
                     if (propertyStatusDraft) payload.property_status = propertyStatusDraft;
                     if (propertyTypeDraft) payload.property_type = propertyTypeDraft;
                     if (projectDraft) payload.project = projectDraft;
+                    if (projectIdDraft) payload.project_id = projectIdDraft;
                     if (budgetDraft) payload.budget = budgetDraft;
                     if (preferredAreaDraft) payload.preferred_area = preferredAreaDraft;
                   }
@@ -578,7 +631,14 @@ export const LeadDetailScreen = ({ route, navigation }: { route: RouteParams; na
               ))}
             </View>
             <TextInput value={propertyTypeDraft} onChangeText={setPropertyTypeDraft} placeholder="Property Type (e.g. 2BHK, Villa)" placeholderTextColor={Colors.textSecondary} style={styles.dlgTextInput} />
-            <TextInput value={projectDraft} onChangeText={setProjectDraft} placeholder="Project Interested In" placeholderTextColor={Colors.textSecondary} style={styles.dlgTextInput} />
+            <TouchableOpacity
+              onPress={() => { setProjectIdDraft(null); setProjectPickerOpen(true); }}
+              style={[styles.dlgTextInput, { justifyContent: 'center', paddingVertical: 14 }]}
+            >
+              <Text style={{ color: projectDraft ? Colors.text : Colors.textSecondary, fontSize: 14 }}>
+                {projectDraft || 'Project Interested In (tap to select)'}
+              </Text>
+            </TouchableOpacity>
             <Text style={[styles.dlgFieldLabel, { marginTop: 0 }]}>Budget</Text>
             <View style={styles.dlgOptionRow}>
               {['30L', '50L', '80L', '1 Cr', '1.5 Cr', '2 Cr+'].map((opt) => (
@@ -600,6 +660,21 @@ export const LeadDetailScreen = ({ route, navigation }: { route: RouteParams; na
           </View>
         </View>
       </Modal>
+
+      <ProjectPickerModal
+        visible={projectPickerOpen}
+        onClose={() => setProjectPickerOpen(false)}
+        onSelect={(proj, customName) => {
+          if (proj) {
+            setProjectDraft(proj.name);
+            setProjectIdDraft(proj._id);
+          } else if (customName) {
+            setProjectDraft(customName);
+            setProjectIdDraft(null);
+          }
+          setProjectPickerOpen(false);
+        }}
+      />
 
       {nativePickerMode ? (
         <DateTimePicker value={remindAt} mode={nativePickerMode} display="default" is24Hour={false}
@@ -624,24 +699,89 @@ export const LeadDetailScreen = ({ route, navigation }: { route: RouteParams; na
       <Modal visible={markDoneOpen} transparent animationType="fade" onRequestClose={closeMarkDone}>
         <View style={styles.dlgBackdrop}>
           <View style={styles.dlgCard}>
-            <Text style={styles.dlgTitle}>Mark Visit as Done</Text>
-            <Text style={styles.dlgSub}>Add optional notes about this visit</Text>
+            <Text style={styles.dlgTitle}>✓ Mark Visit as Done</Text>
+            <Text style={styles.dlgSub}>Projects visited</Text>
 
-            <TextInput
-              value={markDoneNotes}
-              onChangeText={setMarkDoneNotes}
-              placeholder="E.g. Client liked the 3BHK, wants to bring family next time..."
-              placeholderTextColor={Colors.textSecondary}
-              style={[styles.dlgTextInput, { minHeight: 80 }]}
-              multiline
-            />
+            <View style={styles.chipContainer}>
+              {markDoneProjects.map((proj, idx) => (
+                <View key={idx} style={styles.chip}>
+                  <Text style={styles.chipText} numberOfLines={1}>{proj}</Text>
+                  <TouchableOpacity onPress={() => removeProjectChip(idx)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                    <Text style={styles.chipClose}>×</Text>
+                  </TouchableOpacity>
+                </View>
+              ))}
+              <TextInput
+                ref={chipInputRef}
+                value={chipInputText}
+                onChangeText={setChipInputText}
+                onSubmitEditing={addProjectChip}
+                placeholder={markDoneProjects.length === 0 ? 'Type project name, press Enter...' : '+ Add project'}
+                placeholderTextColor={Colors.textSecondary}
+                style={styles.chipInput}
+                returnKeyType="done"
+                blurOnSubmit={false}
+              />
+            </View>
+
+            {/* Catalog suggestions */}
+            {chipInputText.trim() && (() => {
+              const match = catalogProjects.filter(p =>
+                p.name.toLowerCase().includes(chipInputText.toLowerCase()) &&
+                !markDoneProjects.includes(p.name)
+              );
+              if (!match.length) return null;
+              return (
+                <View style={styles.suggestionsList}>
+                  {match.slice(0, 5).map(p => (
+                    <TouchableOpacity key={p._id} style={styles.suggestionItem}
+                      onPress={() => {
+                        if (!markDoneProjects.includes(p.name)) {
+                          setMarkDoneProjects(prev => [...prev, p.name]);
+                        }
+                        setChipInputText('');
+                      }}>
+                      <Text style={styles.suggestionName}>🏗️ {p.name}</Text>
+                      {p.location ? <Text style={styles.suggestionSub}>{p.location}</Text> : null}
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              );
+            })()}
+            {chipInputText.trim() && !catalogProjects.some(p => p.name.toLowerCase().includes(chipInputText.toLowerCase())) && (
+              <TouchableOpacity style={styles.suggestionCustom}
+                onPress={() => addProjectChip()}>
+                <Text style={styles.suggestionCustomText}>+ Add "{chipInputText.trim()}" as custom project</Text>
+              </TouchableOpacity>
+            )}
+
+            {markDoneProjects.length > 0 && (
+              <>
+                <Text style={[styles.dlgSub, { marginTop: 14 }]}>Notes per project (optional)</Text>
+                {markDoneProjects.map((proj, idx) => (
+                  <View key={proj} style={{ marginBottom: idx < markDoneProjects.length - 1 ? 10 : 0 }}>
+                    <Text style={{ color: Colors.primary, fontSize: 12, fontWeight: '700', marginBottom: 4 }}>
+                      🏗️ {proj}
+                    </Text>
+                    <TextInput
+                      value={markDoneNotes[proj] || ''}
+                      onChangeText={(t) => setMarkDoneNotes(prev => ({ ...prev, [proj]: t }))}
+                      placeholder={`Notes for ${proj}...`}
+                      placeholderTextColor={Colors.textSecondary}
+                      style={[styles.dlgTextInput, { minHeight: 50 }]}
+                      multiline
+                    />
+                  </View>
+                ))}
+              </>
+            )}
 
             <View style={styles.dlgRow}>
               <TouchableOpacity style={styles.dlgBtnGhost} onPress={closeMarkDone} disabled={updating}>
                 <Text style={styles.dlgBtnGhostTxt}>Cancel</Text>
               </TouchableOpacity>
               <TouchableOpacity style={[styles.dlgBtnPrimary, updating && { opacity: 0.7 }]} disabled={updating} onPress={handleMarkVisitDone}>
-                <Text style={styles.dlgBtnPrimaryTxt}>Confirm</Text>
+                <Text style={styles.dlgBtnPrimaryTxt}>✓ Confirm</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -1004,6 +1144,9 @@ export const LeadDetailScreen = ({ route, navigation }: { route: RouteParams; na
                   Completed: {new Date(visit.completed_at).toLocaleString()}
                 </Text>
               )}
+              {visit.project && (
+                <Text style={styles.visitHistoryDetail}>Project: {visit.project}</Text>
+              )}
               {visit.cancellation_reason && (
                 <Text style={styles.visitHistoryDetail}>
                   Reason: {visit.cancellation_reason.replace(/_/g, ' ')}
@@ -1113,4 +1256,51 @@ const styles = StyleSheet.create({
   dlgBtnGhostTxt: { color: Colors.textSecondary, fontWeight: '800' },
   dlgBtnPrimary: { flex: 1, paddingVertical: 12, borderRadius: 12, backgroundColor: Colors.primary, alignItems: 'center' },
   dlgBtnPrimaryTxt: { color: Colors.text, fontWeight: '900' },
+  chipContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    gap: 6,
+    padding: 10,
+    backgroundColor: Colors.background,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    minHeight: 44,
+  },
+  chip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Colors.primary + '18',
+    borderRadius: 16,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    gap: 4,
+  },
+  chipText: {
+    color: Colors.primary,
+    fontSize: 13,
+    fontWeight: '600',
+    maxWidth: 140,
+  },
+  chipClose: {
+    color: Colors.primary,
+    fontSize: 16,
+    fontWeight: '700',
+    marginLeft: 2,
+  },
+  chipInput: {
+    flex: 1,
+    minWidth: 120,
+    fontSize: 14,
+    color: Colors.text,
+    paddingVertical: 4,
+  },
+  suggestionsList: { backgroundColor: Colors.background, borderRadius: 10, borderWidth: 1, borderColor: Colors.border, marginTop: 4, maxHeight: 180 },
+  suggestionItem: { padding: 10, borderBottomWidth: 1, borderBottomColor: Colors.border },
+  suggestionName: { color: Colors.text, fontSize: 14, fontWeight: '700' },
+  suggestionSub: { color: Colors.textSecondary, fontSize: 11, marginTop: 2 },
+  suggestionCustom: { padding: 12, borderRadius: 10, borderWidth: 1, borderColor: Colors.primary, borderStyle: 'dashed' as const, marginTop: 4, alignItems: 'center' as const },
+  suggestionCustomText: { color: Colors.primary, fontSize: 13, fontWeight: '700' },
 });
+

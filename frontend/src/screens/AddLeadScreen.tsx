@@ -1,21 +1,24 @@
 import React, { useState } from 'react';
-import { 
-  StyleSheet, 
-  View, 
-  Text, 
-  TextInput, 
-  TouchableOpacity, 
-  ActivityIndicator, 
+import {
+  StyleSheet,
+  View,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  ActivityIndicator,
   ScrollView,
-  Alert 
+  Alert
 } from 'react-native';
 import { Colors } from '../theme/colors';
 import client from '../api/client';
+import { ProjectPickerModal } from '../components/ProjectPickerModal';
 
 export const AddLeadScreen = ({ navigation }: any) => {
   const [name, setName] = useState('');
   const [mobile, setMobile] = useState('');
   const [project, setProject] = useState('');
+  const [projectPickerOpen, setProjectPickerOpen] = useState(false);
+  const [projectId, setProjectId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
   const handleSave = async () => {
@@ -26,7 +29,11 @@ export const AddLeadScreen = ({ navigation }: any) => {
 
     setLoading(true);
     try {
-      const response = await client.post('/leads', { name, mobile, project });
+      const payload: Record<string, unknown> = { name, mobile };
+      if (project) payload.project = project;
+      if (projectId) payload.project_id = projectId;
+
+      const response = await client.post('/leads', payload);
       if (response.data.success) {
         Alert.alert('Success', 'Lead added successfully', [
           { text: 'OK', onPress: () => navigation.goBack() }
@@ -40,6 +47,7 @@ export const AddLeadScreen = ({ navigation }: any) => {
   };
 
   return (
+    <>
     <ScrollView style={styles.container}>
       <View style={styles.header}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
@@ -73,17 +81,18 @@ export const AddLeadScreen = ({ navigation }: any) => {
         </View>
 
         <View style={styles.inputContainer}>
-          <Text style={styles.label}>Project Interest</Text>
-          <TextInput
-            style={styles.input}
-            placeholder="e.g. Skyline Towers"
-            placeholderTextColor={Colors.textSecondary}
-            value={project}
-            onChangeText={setProject}
-          />
+          <Text style={styles.label}>Project (optional)</Text>
+          <TouchableOpacity
+            onPress={() => setProjectPickerOpen(true)}
+            style={[styles.input, { justifyContent: 'center' }]}
+          >
+            <Text style={{ color: project ? Colors.text : Colors.textSecondary, fontSize: 16 }}>
+              {project || 'Tap to select project...'}
+            </Text>
+          </TouchableOpacity>
         </View>
 
-        <TouchableOpacity 
+        <TouchableOpacity
           style={styles.saveButton}
           onPress={handleSave}
           disabled={loading}
@@ -96,6 +105,22 @@ export const AddLeadScreen = ({ navigation }: any) => {
         </TouchableOpacity>
       </View>
     </ScrollView>
+
+    <ProjectPickerModal
+      visible={projectPickerOpen}
+      onClose={() => setProjectPickerOpen(false)}
+      onSelect={(proj, customName) => {
+        if (proj) {
+          setProject(proj.name);
+          setProjectId(proj._id);
+        } else if (customName) {
+          setProject(customName);
+          setProjectId(null);
+        }
+        setProjectPickerOpen(false);
+      }}
+    />
+    </>
   );
 };
 

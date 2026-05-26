@@ -5,3 +5,4 @@ need to add field where staff can add budget and flat configuration, also is he 
 
 4. visit done should finally approved by admin or super admin so that staff cant do fake leads
 
+5. superadmin or admin will add  or remove project names with description where they can add project details and sizes of different configuration and those project only we select throughtout the places where we need to select the project so letter we can search insight based on project like how many visit done etc

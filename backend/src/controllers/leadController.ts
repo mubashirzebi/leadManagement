@@ -124,6 +124,13 @@ export const getDashboardStats = async (req: AuthRequest, res: Response) => {
     };
     const visitsToday = await Lead.countDocuments(visitsTodayQuery);
 
+    // Sum all visit_count values for total visits metric (multi-project visits count per project)
+    const totalVisitsAgg = await Lead.aggregate([
+      { $match: { ...matchQuery, visit_count: { $gt: 0 } } },
+      { $group: { _id: null, total: { $sum: '$visit_count' } } }
+    ]);
+    const totalVisits = totalVisitsAgg.length > 0 ? totalVisitsAgg[0].total : 0;
+
     const formattedStats = {
       total: stats.reduce((acc, curr) => acc + curr.count, 0),
       new: stats.find(s => s._id === 'NEW')?.count || 0,
@@ -133,6 +140,7 @@ export const getDashboardStats = async (req: AuthRequest, res: Response) => {
       visited: stats.find(s => s._id === 'VISITED')?.count || 0,
       re_visit: stats.find(s => s._id === 'RE_VISIT')?.count || 0,
       visits_today: visitsToday,
+      total_visits: totalVisits,
       booked: stats.find(s => s._id === 'BOOKED')?.count || 0,
       not_interested: stats.find(s => s._id === 'NOT_INTERESTED')?.count || 0,
       invalid_number: stats.find(s => s._id === 'INVALID_NUMBER')?.count || 0,
@@ -226,7 +234,7 @@ export const getLeadDetails = async (req: AuthRequest, res: Response) => {
 export const updateLead = async (req: AuthRequest, res: Response) => {
   try {
     const { id } = req.params;
-    const { status, heat, assigned_to, remark, duplicateFlag, site_visit_booked, site_visit_at, callback_reason, property_status, property_type, preferred_area, not_interested_reason, project, budget, activity_type, activity_content, visit_notes } = req.body;
+    const { status, heat, assigned_to, remark, duplicateFlag, site_visit_booked, site_visit_at, callback_reason, property_status, property_type, preferred_area, not_interested_reason, project, project_id, budget, activity_type, activity_content, visit_notes, visit_projects } = req.body;
     const organization_id = req.user?.organization_id;
 
     if (!organization_id) {
@@ -261,6 +269,7 @@ export const updateLead = async (req: AuthRequest, res: Response) => {
     if (preferred_area !== undefined) updateData.preferred_area = preferred_area;
     if (not_interested_reason !== undefined) updateData.not_interested_reason = not_interested_reason;
     if (project !== undefined) updateData.project = project;
+    if (project_id !== undefined) updateData.project_id = project_id ? new mongoose.Types.ObjectId(project_id) : null;
     if (budget !== undefined) updateData.budget = budget;
 
     const query: any = { _id: id, organization_id };
@@ -274,17 +283,22 @@ export const updateLead = async (req: AuthRequest, res: Response) => {
       return res.status(404).json({ success: false, message: 'Lead not found' });
     }
 
-    // Push visit_history entry when status changes to VISITED
+    // Push visit_history entries when status changes to VISITED — one per project
     if (status === 'VISITED') {
-      const visitEntry: any = {
+      const projects: string[] = visit_projects?.length
+        ? visit_projects
+        : [existingLead.project].filter(Boolean);
+      const notesMap: Record<string, string> = visit_notes || {};
+      const entries = projects.map((proj: string) => ({
         scheduled_at: existingLead.site_visit_at || new Date(),
         completed_at: new Date(),
         outcome: 'completed',
-        notes: visit_notes || null,
+        project: proj,
+        notes: notesMap[proj] || null,
         created_at: new Date(),
-      };
-      updateData.$push = { visit_history: visitEntry };
-      updateData.$inc = { visit_count: 1 };
+      }));
+      updateData.$push = { visit_history: { $each: entries } };
+      updateData.$inc = { visit_count: entries.length };
     }
     // Push visit_history entry when visit is cancelled
     if (activity_type === 'visit_cancelled') {
@@ -299,11 +313,16 @@ export const updateLead = async (req: AuthRequest, res: Response) => {
       // Don't increment visit_count for cancellations
     }
 
-    const lead = await Lead.findOneAndUpdate(
-      query,
-      updateData.$push || updateData.$inc ? updateData : { $set: updateData },
-      { new: true }
-    );
+    let finalUpdate: any;
+    if (updateData.$push || updateData.$inc) {
+      const { $push, $inc, ...setFields } = updateData;
+      finalUpdate = { $set: setFields };
+      if ($push) finalUpdate.$push = $push;
+      if ($inc) finalUpdate.$inc = $inc;
+    } else {
+      finalUpdate = { $set: updateData };
+    }
+    const lead = await Lead.findOneAndUpdate(query, finalUpdate, { new: true });
 
     // Log the update
     const changes: string[] = [];
