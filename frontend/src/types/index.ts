@@ -95,3 +95,12 @@ export interface WeekVisitsResponse {
   week_start: string;
   week_end: string;
 }
+
+export interface ProjectStat {
+  project_id: string;
+  project_name: string;
+  total_leads: number;
+  visited: number;
+  booked: number;
+  visits_today: number;
+}

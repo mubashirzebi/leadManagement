@@ -3,6 +3,7 @@ import mongoose from 'mongoose';
 import Lead from '../models/Lead';
 import ActivityLog from '../models/ActivityLog';
 import Organization from '../models/Organization';
+import Project from '../models/Project';
 import User from '../models/User';
 import { AuthRequest } from '../middleware/auth';
 
@@ -274,7 +275,7 @@ export const getPerUserDashboardStats = async (req: AuthRequest, res: Response) 
 export const getLeads = async (req: AuthRequest, res: Response) => {
   try {
     const organization_id = req.user?.organization_id;
-    const { status, heat, assigned_to, search, page = 1, limit = 20 } = req.query;
+    const { status, heat, assigned_to, assigned_to_ids, search, project_id, from, to, page = 1, limit = 20 } = req.query;
 
     if (!organization_id) {
       return res.status(403).json({ success: false, message: 'No organization linked' });
@@ -285,7 +286,26 @@ export const getLeads = async (req: AuthRequest, res: Response) => {
     // Staff can ONLY see leads assigned to them
     if (req.user?.role === 'staff') {
       query.assigned_to = new mongoose.Types.ObjectId(req.user.id);
+    } else if (assigned_to_ids) {
+      // Multi-select: comma-separated user IDs
+      const ids = (assigned_to_ids as string).split(',').filter(id => id.length > 0);
+      const nullSelected = ids.includes('null');
+      const validIds = ids.filter(id => id !== 'null' && mongoose.Types.ObjectId.isValid(id));
+
+      if (nullSelected && validIds.length === 0) {
+        query.assigned_to = null;
+      } else if (nullSelected && validIds.length > 0) {
+        query.$or = [
+          { assigned_to: null },
+          { assigned_to: { $in: validIds.map(id => new mongoose.Types.ObjectId(id)) } },
+        ];
+      } else if (validIds.length === 1) {
+        query.assigned_to = new mongoose.Types.ObjectId(validIds[0]);
+      } else if (validIds.length > 1) {
+        query.assigned_to = { $in: validIds.map(id => new mongoose.Types.ObjectId(id)) };
+      }
     } else if (assigned_to) {
+      // Legacy single-assignee (backward compat)
       query.assigned_to = assigned_to === 'null' ? null : assigned_to;
     }
 
@@ -311,6 +331,33 @@ export const getLeads = async (req: AuthRequest, res: Response) => {
         { name: { $regex: search, $options: 'i' } },
         { mobile: { $regex: search, $options: 'i' } }
       ];
+    }
+
+    // Filter by project(s) — supports comma-separated project_ids (multi-select)
+    // Also supports legacy single project_id for backward compatibility
+    const projectIdsRaw = req.query.project_ids as string | undefined;
+    const singleProjectId = req.query.project_id as string | undefined;
+
+    if (projectIdsRaw) {
+      const ids = projectIdsRaw.split(',').filter(id => mongoose.Types.ObjectId.isValid(id));
+      if (ids.length > 0) {
+        query.project_id = ids.length === 1
+          ? new mongoose.Types.ObjectId(ids[0])
+          : { $in: ids.map(id => new mongoose.Types.ObjectId(id)) };
+      }
+    } else if (singleProjectId && mongoose.Types.ObjectId.isValid(singleProjectId)) {
+      query.project_id = new mongoose.Types.ObjectId(singleProjectId);
+    }
+
+    // Filter by time range (created_at)
+    if (from || to) {
+      query.created_at = {};
+      if (from) {
+        query.created_at.$gte = new Date(from as string);
+      }
+      if (to) {
+        query.created_at.$lte = new Date(to as string);
+      }
     }
 
     const leads = await Lead.find(query)
@@ -651,6 +698,100 @@ export const getWeekVisits = async (req: AuthRequest, res: Response) => {
     res.json({ success: true, data: { days: result, total, week_start: weekStartUtc.toISOString(), week_end: weekEndUtc.toISOString() } });
   } catch (error) {
     console.error('[Get Week Visits Error]:', error);
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+};
+
+export const getProjectStats = async (req: AuthRequest, res: Response) => {
+  try {
+    const organization_id = req.user?.organization_id;
+    const { from, to } = req.query;
+
+    if (!organization_id || !mongoose.Types.ObjectId.isValid(organization_id as string)) {
+      return res.json({ success: true, data: [] });
+    }
+
+    const orgId = new mongoose.Types.ObjectId(organization_id as string);
+    const matchQuery: any = {
+      organization_id: orgId,
+      project_id: { $ne: null },
+    };
+
+    // Staff can only see their own leads
+    if (req.user?.role === 'staff') {
+      matchQuery.assigned_to = new mongoose.Types.ObjectId(req.user.id);
+    }
+
+    // Time filter
+    if (from && to) {
+      matchQuery.created_at = { $gte: new Date(from as string), $lte: new Date(to as string) };
+    }
+
+    // Exclude inactive Facebook pages (same as getDashboardStats)
+    const org = await Organization.findById(organization_id);
+    if (org && org.meta_config?.pages) {
+      const inactivePageNames = org.meta_config.pages
+        .filter((p: any) => p.is_active === false)
+        .map((p: any) => p.page_name);
+      if (inactivePageNames.length > 0) {
+        matchQuery.facebook_page_name = { $nin: inactivePageNames };
+      }
+    }
+
+    // Compute today's date range in UTC for visits_today per project
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+    const todayEnd = new Date();
+    todayEnd.setHours(23, 59, 59, 999);
+
+    const projectStats = await Lead.aggregate([
+      { $match: matchQuery },
+      {
+        $group: {
+          _id: '$project_id',
+          total_leads: { $sum: 1 },
+          visited: { $sum: '$visit_count' },
+          booked: { $sum: { $cond: [{ $eq: ['$status', 'BOOKED'] }, 1, 0] } },
+          visits_today: {
+            $sum: {
+              $cond: [
+                {
+                  $and: [
+                    { $in: ['$status', ['VISIT_BOOKED', 'RE_VISIT']] },
+                    { $gte: ['$site_visit_at', todayStart] },
+                    { $lte: ['$site_visit_at', todayEnd] },
+                  ],
+                },
+                1,
+                0,
+              ],
+            },
+          },
+        },
+      },
+      { $sort: { total_leads: -1 } },
+    ]);
+
+    // Populate project names
+    const projectIds = projectStats.map((p: any) => p._id);
+    const projects = await Project.find({ _id: { $in: projectIds } }).select('name');
+    const projectNameMap: Record<string, string> = {};
+    projects.forEach((p: any) => {
+      projectNameMap[p._id.toString()] = p.name;
+    });
+
+    const result = projectStats.map((p: any) => ({
+      project_id: p._id,
+      project_name: projectNameMap[p._id.toString()] || 'Unknown Project',
+      total_leads: p.total_leads,
+      visited: p.visited,
+      booked: p.booked,
+      visits_today: p.visits_today,
+    }));
+
+    res.json({ success: true, data: result });
+  } catch (error) {
+    console.error('[Get Project Stats Error]:', error);
     res.status(500).json({ success: false, message: 'Server error' });
   }
 };

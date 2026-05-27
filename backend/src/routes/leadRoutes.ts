@@ -1,11 +1,12 @@
 import { Router } from 'express';
-import { createLead, getLeads, updateLead, getLeadLogs, getOrgLogs, bulkAssignLeads, getDashboardStats, getPerUserDashboardStats, getLeadDetails, getWeekVisits } from '../controllers/leadController';
+import { createLead, getLeads, updateLead, getLeadLogs, getOrgLogs, bulkAssignLeads, getDashboardStats, getPerUserDashboardStats, getLeadDetails, getWeekVisits, getProjectStats } from '../controllers/leadController';
 
 const router = Router();
 
 router.get('/stats', getDashboardStats);
 router.get('/per-user-stats', getPerUserDashboardStats);
 router.get('/week-visits', getWeekVisits);
+router.get('/project-stats', getProjectStats);
 router.get('/activities', getOrgLogs);
 router.get('/', getLeads);
 router.get('/:id', getLeadDetails);

@@ -15,9 +15,9 @@ export const getTeamList = async (req: AuthRequest, res: Response) => {
 
     if (!organization_id) return res.status(403).json({ success: false, message: 'No org' });
     
-    const team = await User.find({ 
-      organization_id, 
-      role: { $in: ['staff', 'admin'] } 
+    const team = await User.find({
+      organization_id,
+      role: { $in: ['staff', 'admin', 'superadmin'] }
     }).select('-password').sort({ created_at: -1 }).lean();
 
     // Fetch lead counts for each team member

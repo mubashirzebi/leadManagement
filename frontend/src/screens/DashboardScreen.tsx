@@ -3,6 +3,7 @@ import {
   StyleSheet,
   View,
   Text,
+  TextInput,
   ScrollView,
   RefreshControl,
   TouchableOpacity,
@@ -13,7 +14,8 @@ import { Colors, STATUS_COLORS } from '../theme/colors';
 import client from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import { useNavigation } from '@react-navigation/native';
-import type { WeekDay, WeekVisitsResponse } from '../types';
+import { formatStatusLabel } from '../utils/statusUtils';
+import type { WeekDay, WeekVisitsResponse, ProjectStat } from '../types';
 
 /* ─────────────────────────── Types ─────────────────────────── */
 interface PerUserStat {
@@ -39,11 +41,10 @@ type TimePeriod = 'weekly' | 'monthly' | 'quarterly' | 'yearly' | 'custom';
 
 const STATUS_ORDER: Array<keyof PerUserStat> = ['NEW','CALLBACK','INTERESTED','VISIT_BOOKED','VISITED','RE_VISIT','BOOKED','NOT_INTERESTED','INVALID_NUMBER'];
 
-const STATUS_LABELS: Record<string, string> = {
-  NEW: 'New', CALLBACK: 'Callback', INTERESTED: 'Interested',
-  VISIT_BOOKED: 'Visit Booked', VISITED: 'Visited', RE_VISIT: 'Re-Visit',
-  BOOKED: 'Booked', NOT_INTERESTED: 'Not Interested', INVALID_NUMBER: 'Invalid',
-};
+const STATUS_LABELS: Record<string, string> = Object.fromEntries(
+  ['NEW','CALLBACK','INTERESTED','VISIT_BOOKED','VISITED','RE_VISIT','BOOKED','NOT_INTERESTED','INVALID_NUMBER']
+    .map(s => [s, formatStatusLabel(s)])
+);
 
 /* ────────────────────────── Helpers ────────────────────────── */
 function getPeriodRange(period: TimePeriod): { from: string; to: string } {
@@ -103,9 +104,16 @@ export const DashboardScreen = () => {
     unassigned_leads: 0,
   });
 
+  /* ─── Project Stats ─── */
+  const [projectStats, setProjectStats] = useState<ProjectStat[]>([]);
+
   /* ─── Per-User Stats (manager only) ─── */
   const [perUser, setPerUser] = useState<PerUserStat[]>([]);
   const [expandedUserId, setExpandedUserId] = useState<string | null>(null);
+
+  /* ─── Search filters ─── */
+  const [teamSearch, setTeamSearch] = useState('');
+  const [projectSearch, setProjectSearch] = useState('');
 
   /* ─── Week Strip (manager only) ─── */
   const [weekDays, setWeekDays] = useState<WeekDay[]>([]);
@@ -134,13 +142,15 @@ export const DashboardScreen = () => {
       const query = getQueryParams();
 
       if (isManager) {
-        const [statsRes, perUserRes, weekRes] = await Promise.all([
+        const [statsRes, perUserRes, weekRes, projectRes] = await Promise.all([
           client.get(`/leads/stats${query}`),
           client.get(`/leads/per-user-stats${query}`),
           client.get(`/leads/week-visits`),
+          client.get(`/leads/project-stats${query}`),
         ]);
         if (statsRes.data.success) setStats(statsRes.data.data);
         if (perUserRes.data.success) setPerUser(perUserRes.data.data);
+        if (projectRes.data.success) setProjectStats(projectRes.data.data);
         if (weekRes.data.success) {
           const w: WeekVisitsResponse = weekRes.data.data;
           setWeekDays(w.days);
@@ -149,6 +159,8 @@ export const DashboardScreen = () => {
       } else {
         const statsRes = await client.get(`/leads/stats${query}`);
         if (statsRes.data.success) setStats(statsRes.data.data);
+        const projectRes = await client.get(`/leads/project-stats${query}`);
+        if (projectRes.data.success) setProjectStats(projectRes.data.data);
       }
     } catch (err: any) {
       setError('Unable to connect to server. Please check your internet connection.');
@@ -482,10 +494,89 @@ export const DashboardScreen = () => {
       {isManager && (
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Team Performance</Text>
-          {loading && perUser.length === 0 ? null : perUser.map(renderUserRow)}
+          {perUser.length > 3 && (
+            <View style={styles.searchContainer}>
+              <TextInput
+                style={styles.searchInput}
+                placeholder="Search team member..."
+                placeholderTextColor={Colors.textSecondary}
+                value={teamSearch}
+                onChangeText={setTeamSearch}
+              />
+              {teamSearch.length > 0 && (
+                <TouchableOpacity onPress={() => setTeamSearch('')} style={styles.searchClear}>
+                  <Text style={styles.searchClearText}>✕</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+          )}
+          {loading && perUser.length === 0 ? null : perUser
+            .filter(u => !teamSearch || u.name.toLowerCase().includes(teamSearch.toLowerCase()))
+            .map(renderUserRow)}
           {!loading && perUser.length === 0 && (
             <View style={styles.placeholderCard}>
               <Text style={styles.placeholderText}>No team members with leads in this period.</Text>
+            </View>
+          )}
+        </View>
+      )}
+
+      {/* ─── Project Metrics ─── */}
+      {projectStats.length > 0 && (
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Project Performance</Text>
+          {projectStats.length > 3 && (
+            <View style={styles.searchContainer}>
+              <TextInput
+                style={styles.searchInput}
+                placeholder="Search project..."
+                placeholderTextColor={Colors.textSecondary}
+                value={projectSearch}
+                onChangeText={setProjectSearch}
+              />
+              {projectSearch.length > 0 && (
+                <TouchableOpacity onPress={() => setProjectSearch('')} style={styles.searchClear}>
+                  <Text style={styles.searchClearText}>✕</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+          )}
+          {projectStats
+            .filter(p => !projectSearch || p.project_name.toLowerCase().includes(projectSearch.toLowerCase()))
+            .map((proj) => (
+            <View key={proj.project_id} style={styles.projectCard}>
+              <Text style={styles.projectCardName}>{proj.project_name}</Text>
+              <View style={styles.projectMetricsRow}>
+                <View style={styles.projectMetric}>
+                  <Text style={[styles.projectMetricValue, { color: Colors.primary }]}>
+                    {proj.total_leads}
+                  </Text>
+                  <Text style={styles.projectMetricLabel}>Leads</Text>
+                </View>
+                <View style={styles.projectMetric}>
+                  <Text style={[styles.projectMetricValue, { color: '#0d9488' }]}>
+                    {proj.visited}
+                  </Text>
+                  <Text style={styles.projectMetricLabel}>Visited</Text>
+                </View>
+                <View style={styles.projectMetric}>
+                  <Text style={[styles.projectMetricValue, { color: Colors.success }]}>
+                    {proj.booked}
+                  </Text>
+                  <Text style={styles.projectMetricLabel}>Booked</Text>
+                </View>
+                <View style={styles.projectMetric}>
+                  <Text style={[styles.projectMetricValue, { color: '#06b6d4' }]}>
+                    {proj.visits_today}
+                  </Text>
+                  <Text style={styles.projectMetricLabel}>Today</Text>
+                </View>
+              </View>
+            </View>
+          ))}
+          {!loading && projectStats.length === 0 && (
+            <View style={styles.placeholderCard}>
+              <Text style={styles.placeholderText}>No project data in this period.</Text>
             </View>
           )}
         </View>
@@ -731,5 +822,68 @@ const styles = StyleSheet.create({
   },
   weekDayBadgeTextToday: {
     color: '#fff',
+  },
+
+  /* Project cards */
+  projectCard: {
+    backgroundColor: Colors.surface,
+    borderRadius: 14,
+    padding: 16,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  projectCardName: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: Colors.text,
+    marginBottom: 12,
+  },
+  projectMetricsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+  },
+  projectMetric: {
+    alignItems: 'center',
+    flex: 1,
+  },
+  projectMetricValue: {
+    fontSize: 22,
+    fontWeight: '800',
+  },
+  projectMetricLabel: {
+    fontSize: 11,
+    color: Colors.textSecondary,
+    fontWeight: '600',
+    marginTop: 2,
+  },
+
+  /* Search inputs */
+  searchContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  searchInput: {
+    flex: 1,
+    backgroundColor: Colors.background,
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    fontSize: 14,
+    fontWeight: '600',
+    color: Colors.text,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  searchClear: {
+    marginLeft: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+  },
+  searchClearText: {
+    color: Colors.textSecondary,
+    fontSize: 14,
+    fontWeight: '700',
   },
 });

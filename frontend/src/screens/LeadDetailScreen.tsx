@@ -18,6 +18,8 @@ import client from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import { Lead, ActivityLog, Staff, Project } from '../types';
 import { ProjectPickerModal } from '../components/ProjectPickerModal';
+import { MultiProjectPickerModal } from '../components/MultiProjectPickerModal';
+import { formatStatusLabel } from '../utils/statusUtils';
 
 type RouteParams = { params: { lead: Lead } };
 type NavigationProp = { goBack: () => void };
@@ -58,7 +60,7 @@ const getStatusMeta = (status: Lead['status']): { label: string; color: string; 
     case 'BOOKED': return { label: '\u2713 Deal closed', color: '#10b981', bg: '#10b98120' };
     case 'NOT_INTERESTED': return { label: 'Not interested', color: '#ef4444', bg: '#ef444420' };
     case 'INVALID_NUMBER': return { label: 'Invalid number', color: '#64748b', bg: '#64748b20' };
-    default: return { label: status, color: Colors.textSecondary, bg: 'transparent' };
+    default: return { label: formatStatusLabel(status), color: Colors.textSecondary, bg: 'transparent' };
   }
 };
 
@@ -79,6 +81,8 @@ export const LeadDetailScreen = ({ route, navigation }: { route: RouteParams; na
   const [preferredAreaDraft, setPreferredAreaDraft] = React.useState('');
   const [projectDraft, setProjectDraft] = React.useState('');
   const [projectPickerOpen, setProjectPickerOpen] = React.useState(false);
+  const [markDoneProjectPickerOpen, setMarkDoneProjectPickerOpen] = React.useState(false);
+  const [markDoneProjectIds, setMarkDoneProjectIds] = React.useState<string[]>([]);
   const [projectIdDraft, setProjectIdDraft] = React.useState<string | null>(null);
   const [budgetDraft, setBudgetDraft] = React.useState('');
   const [notInterestedReasonDraft, setNotInterestedReasonDraft] = React.useState<Lead['not_interested_reason']>(undefined);
@@ -300,21 +304,19 @@ export const LeadDetailScreen = ({ route, navigation }: { route: RouteParams; na
 
   // === VISIT OUTCOME HANDLERS ===
 
-  const openMarkDone = async () => {
+  const openMarkDone = () => {
     setMarkDoneNotes({});
     setMarkDoneProjects(lead.project ? [lead.project] : []);
+    setMarkDoneProjectIds(lead.project_id ? [lead.project_id] : []);
     setChipInputText('');
     setMarkDoneOpen(true);
-    try {
-      const res = await client.get('/projects?status=active');
-      if (res.data.success) setCatalogProjects(res.data.data);
-    } catch { setCatalogProjects([]); }
   };
 
   const closeMarkDone = () => {
     setMarkDoneOpen(false);
     setMarkDoneNotes({});
     setMarkDoneProjects([]);
+    setMarkDoneProjectIds([]);
     setChipInputText('');
   };
 
@@ -327,15 +329,17 @@ export const LeadDetailScreen = ({ route, navigation }: { route: RouteParams; na
   };
 
   const removeProjectChip = (index: number) => {
+    // Remove from names array
     setMarkDoneProjects(prev => {
       const removed = prev[index];
       const next = prev.filter((_, i) => i !== index);
-      // Also clean up the note for the removed project
       if (removed) {
         setMarkDoneNotes(n => { const c = { ...n }; delete c[removed]; return c; });
       }
       return next;
     });
+    // Keep markDoneProjectIds in sync — remove the corresponding ID
+    setMarkDoneProjectIds(prev => prev.filter((_, i) => i !== index));
   };
 
   const handleMarkVisitDone = async () => {
@@ -448,7 +452,7 @@ export const LeadDetailScreen = ({ route, navigation }: { route: RouteParams; na
         <View style={styles.dlgBackdrop}>
           <View style={styles.dlgCard}>
             <Text style={styles.dlgTitle}>Update Status</Text>
-            <Text style={styles.dlgSub}>{pendingStatus ?? ''}</Text>
+            <Text style={styles.dlgSub}>{pendingStatus ? formatStatusLabel(pendingStatus) : ''}</Text>
 
             {pendingStatus === 'CALLBACK' && (
               <>
@@ -496,7 +500,7 @@ export const LeadDetailScreen = ({ route, navigation }: { route: RouteParams; na
                   ))}
                 </View>
                 <TextInput value={budgetDraft} onChangeText={setBudgetDraft} placeholder="Or type your own..." placeholderTextColor={Colors.textSecondary} style={styles.dlgTextInput} />
-                <TextInput value={preferredAreaDraft} onChangeText={setPreferredAreaDraft} placeholder="Preferred Area" placeholderTextColor={Colors.textSecondary} style={styles.dlgTextInput} />
+                <TextInput value={preferredAreaDraft} onChangeText={setPreferredAreaDraft} placeholder="Preferred Location" placeholderTextColor={Colors.textSecondary} style={styles.dlgTextInput} />
               </>
             )}
 
@@ -649,7 +653,7 @@ export const LeadDetailScreen = ({ route, navigation }: { route: RouteParams; na
               ))}
             </View>
             <TextInput value={budgetDraft} onChangeText={setBudgetDraft} placeholder="Or type your own..." placeholderTextColor={Colors.textSecondary} style={styles.dlgTextInput} />
-            <TextInput value={preferredAreaDraft} onChangeText={setPreferredAreaDraft} placeholder="Preferred Area" placeholderTextColor={Colors.textSecondary} style={styles.dlgTextInput} />
+            <TextInput value={preferredAreaDraft} onChangeText={setPreferredAreaDraft} placeholder="Preferred Location" placeholderTextColor={Colors.textSecondary} style={styles.dlgTextInput} />
             <TextInput value={statusRemarkDraft} onChangeText={setStatusRemarkDraft} placeholder="Optional note..." placeholderTextColor={Colors.textSecondary} style={[styles.dlgTextInput, { minHeight: 60 }]} multiline />
             <View style={styles.dlgRow}>
               <TouchableOpacity style={styles.dlgBtnGhost} onPress={closeEditInterest} disabled={updating}><Text style={styles.dlgBtnGhostTxt}>Cancel</Text></TouchableOpacity>
@@ -702,6 +706,14 @@ export const LeadDetailScreen = ({ route, navigation }: { route: RouteParams; na
             <Text style={styles.dlgTitle}>✓ Mark Visit as Done</Text>
             <Text style={styles.dlgSub}>Projects visited</Text>
 
+            {/* Select Projects button — opens MultiProjectPickerModal */}
+            <TouchableOpacity
+              style={styles.markDoneSelectBtn}
+              onPress={() => setMarkDoneProjectPickerOpen(true)}
+            >
+              <Text style={styles.markDoneSelectBtnText}>🏗️ Select Projects</Text>
+            </TouchableOpacity>
+
             <View style={styles.chipContainer}>
               {markDoneProjects.map((proj, idx) => (
                 <View key={idx} style={styles.chip}>
@@ -712,48 +724,16 @@ export const LeadDetailScreen = ({ route, navigation }: { route: RouteParams; na
                 </View>
               ))}
               <TextInput
-                ref={chipInputRef}
                 value={chipInputText}
                 onChangeText={setChipInputText}
                 onSubmitEditing={addProjectChip}
-                placeholder={markDoneProjects.length === 0 ? 'Type project name, press Enter...' : '+ Add project'}
+                placeholder="+ Type custom project name, press Enter"
                 placeholderTextColor={Colors.textSecondary}
                 style={styles.chipInput}
                 returnKeyType="done"
                 blurOnSubmit={false}
               />
             </View>
-
-            {/* Catalog suggestions */}
-            {chipInputText.trim() && (() => {
-              const match = catalogProjects.filter(p =>
-                p.name.toLowerCase().includes(chipInputText.toLowerCase()) &&
-                !markDoneProjects.includes(p.name)
-              );
-              if (!match.length) return null;
-              return (
-                <View style={styles.suggestionsList}>
-                  {match.slice(0, 5).map(p => (
-                    <TouchableOpacity key={p._id} style={styles.suggestionItem}
-                      onPress={() => {
-                        if (!markDoneProjects.includes(p.name)) {
-                          setMarkDoneProjects(prev => [...prev, p.name]);
-                        }
-                        setChipInputText('');
-                      }}>
-                      <Text style={styles.suggestionName}>🏗️ {p.name}</Text>
-                      {p.location ? <Text style={styles.suggestionSub}>{p.location}</Text> : null}
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              );
-            })()}
-            {chipInputText.trim() && !catalogProjects.some(p => p.name.toLowerCase().includes(chipInputText.toLowerCase())) && (
-              <TouchableOpacity style={styles.suggestionCustom}
-                onPress={() => addProjectChip()}>
-                <Text style={styles.suggestionCustomText}>+ Add "{chipInputText.trim()}" as custom project</Text>
-              </TouchableOpacity>
-            )}
 
             {markDoneProjects.length > 0 && (
               <>
@@ -787,6 +767,17 @@ export const LeadDetailScreen = ({ route, navigation }: { route: RouteParams; na
           </View>
         </View>
       </Modal>
+
+      {/* ─── Multi-Project Picker for Mark Visit Done (renders AFTER Mark Done modal so it appears on top) ─── */}
+      <MultiProjectPickerModal
+        visible={markDoneProjectPickerOpen}
+        onClose={() => setMarkDoneProjectPickerOpen(false)}
+        onConfirm={(ids, names) => {
+          setMarkDoneProjectIds(ids);
+          setMarkDoneProjects(names);
+        }}
+        selectedProjectIds={markDoneProjectIds}
+      />
 
       {/* === CANCEL VISIT MODAL === */}
       <Modal visible={cancelVisitOpen} transparent animationType="fade" onRequestClose={closeCancelVisit}>
@@ -945,7 +936,7 @@ export const LeadDetailScreen = ({ route, navigation }: { route: RouteParams; na
         <View style={styles.infoRow}>
           <Text style={styles.label}>Status</Text>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-            <View style={styles.statusBadge}><Text style={styles.statusText}>{lead.status}</Text></View>
+            <View style={styles.statusBadge}><Text style={styles.statusText}>{formatStatusLabel(lead.status)}</Text></View>
             <View style={styles.heatBadge}>
               <Text style={styles.heatText}>
                 {lead.heat === 'HOT' ? '🔥' : lead.heat === 'WARM' ? '🌤️' : '❄️'} {lead.heat}
@@ -963,7 +954,7 @@ export const LeadDetailScreen = ({ route, navigation }: { route: RouteParams; na
         )}
         {['INTERESTED', 'VISIT_BOOKED', 'VISITED', 'RE_VISIT', 'BOOKED'].includes(lead.status) && lead.property_status ? (<View style={styles.infoRow}><Text style={styles.label}>Looking For</Text><Text style={styles.value}>{lead.property_status.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())}</Text></View>) : null}
         {['INTERESTED', 'VISIT_BOOKED', 'VISITED', 'RE_VISIT', 'BOOKED'].includes(lead.status) && lead.property_type ? (<View style={styles.infoRow}><Text style={styles.label}>Property Type</Text><Text style={styles.value}>{lead.property_type}</Text></View>) : null}
-        {['INTERESTED', 'VISIT_BOOKED', 'VISITED', 'RE_VISIT', 'BOOKED'].includes(lead.status) && lead.preferred_area ? (<View style={styles.infoRow}><Text style={styles.label}>Preferred Area</Text><Text style={styles.value}>{lead.preferred_area}</Text></View>) : null}
+        {['INTERESTED', 'VISIT_BOOKED', 'VISITED', 'RE_VISIT', 'BOOKED'].includes(lead.status) && lead.preferred_area ? (<View style={styles.infoRow}><Text style={styles.label}>Preferred Location</Text><Text style={styles.value}>{lead.preferred_area}</Text></View>) : null}
         {lead.status === 'NOT_INTERESTED' && lead.not_interested_reason ? (<View style={styles.infoRow}><Text style={styles.label}>Not Interested Reason</Text><Text style={styles.value}>{lead.not_interested_reason.replace(/_/g, ' ')}</Text></View>) : null}
 
         <View style={styles.infoRow}>
@@ -1047,7 +1038,7 @@ export const LeadDetailScreen = ({ route, navigation }: { route: RouteParams; na
           {statuses.map((s) => (
             <TouchableOpacity key={s} onPress={() => openStatusDialog(s)} disabled={updating}
               style={[styles.statusButton, lead.status === s && styles.activeStatusButton]}>
-              <Text style={[styles.statusButtonText, lead.status === s && styles.activeStatusButtonText]}>{s}</Text>
+              <Text style={[styles.statusButtonText, lead.status === s && styles.activeStatusButtonText]}>{formatStatusLabel(s)}</Text>
             </TouchableOpacity>
           ))}
         </View>
@@ -1295,6 +1286,22 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: Colors.text,
     paddingVertical: 4,
+  },
+  markDoneSelectBtn: {
+    backgroundColor: Colors.background,
+    borderRadius: 10,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    borderWidth: 1,
+    borderColor: Colors.primary,
+    borderStyle: 'dashed',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  markDoneSelectBtnText: {
+    color: Colors.primary,
+    fontSize: 14,
+    fontWeight: '700',
   },
   suggestionsList: { backgroundColor: Colors.background, borderRadius: 10, borderWidth: 1, borderColor: Colors.border, marginTop: 4, maxHeight: 180 },
   suggestionItem: { padding: 10, borderBottomWidth: 1, borderBottomColor: Colors.border },
