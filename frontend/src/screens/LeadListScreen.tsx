@@ -14,9 +14,9 @@ import {
   Platform,
 } from 'react-native';
 import DateTimePicker from '@react-native-community/datetimepicker';
-import { Colors, STATUS_COLORS } from '../theme/colors';
+import { Colors, STATUS_COLORS, hexToRgba } from '../theme/colors';
 import client from '../api/client';
-import { Lead, Staff } from '../types';
+import { Lead, Staff, PaginatedResponse, PaginationMeta } from '../types';
 import { useAuth } from '../context/AuthContext';
 import { MultiProjectPickerModal } from '../components/MultiProjectPickerModal';
 import { MultiStaffPickerModal } from '../components/MultiStaffPickerModal';
@@ -63,6 +63,12 @@ const TIME_PERIOD_LABELS: Record<TimePeriod, string> = {
 export const LeadListScreen = ({ navigation }: { navigation: any }) => {
   const { user } = useAuth();
 
+  // ─── Pagination state ───
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [totalRecords, setTotalRecords] = useState(0);
+
   // ─── Live (applied) filter state ───
   const [leads, setLeads] = useState<Lead[]>([]);
   const [loading, setLoading] = useState(true);
@@ -102,6 +108,7 @@ export const LeadListScreen = ({ navigation }: { navigation: any }) => {
   const [team, setTeam] = useState<Staff[]>([]);
   const [assignOpen, setAssignOpen] = useState(false);
   const [assignLead, setAssignLead] = useState<Lead | null>(null);
+  const [assignSearch, setAssignSearch] = useState('');
   const [unassignedCount, setUnassignedCount] = useState(0);
 
   const statuses = ['All', 'NEW', 'CALLBACK', 'INTERESTED', 'VISIT_BOOKED', 'RE_VISIT', 'BOOKED', 'NOT_INTERESTED', 'INVALID_NUMBER'];
@@ -192,50 +199,91 @@ export const LeadListScreen = ({ navigation }: { navigation: any }) => {
     }
   };
 
+  /**
+   * Build query params shared by all fetchLeads calls.
+   */
+  const buildQueryParams = (targetPage: number): string[] => {
+    const params = [
+      `search=${encodeURIComponent(search)}`,
+      `page=${targetPage}`,
+      `limit=20`,
+    ];
+
+    if (selectedStatus !== 'All') {
+      params.push(`status=${encodeURIComponent(selectedStatus)}`);
+    }
+    if (selectedTemp !== 'All') {
+      params.push(`heat=${encodeURIComponent(selectedTemp)}`);
+    }
+    if (selectedProjectIds.length > 0) {
+      params.push(`project_ids=${encodeURIComponent(selectedProjectIds.join(','))}`);
+    }
+    if (canUseManagerViews && viewMode === 'mine' && user?.id) {
+      params.push(`assigned_to=${encodeURIComponent(user.id)}`);
+    } else if (viewMode === 'unassigned') {
+      params.push('assigned_to=null');
+    } else if (selectedAssigneeIds.length > 0) {
+      params.push(`assigned_to_ids=${encodeURIComponent(selectedAssigneeIds.join(','))}`);
+    }
+    if (timePeriod !== 'all') {
+      if (timePeriod === 'custom') {
+        const f = new Date(customFrom); f.setHours(0, 0, 0, 0);
+        const t = new Date(customTo); t.setHours(23, 59, 59, 999);
+        params.push(`from=${encodeURIComponent(f.toISOString())}`);
+        params.push(`to=${encodeURIComponent(t.toISOString())}`);
+      } else {
+        const { from, to } = getPeriodRange(timePeriod);
+        params.push(`from=${encodeURIComponent(from)}`);
+        params.push(`to=${encodeURIComponent(to)}`);
+      }
+    }
+
+    return params;
+  };
+
+  /**
+   * Fetch page 1 — replaces the entire list (initial load, pull-to-refresh, filter change).
+   */
   const fetchLeads = async () => {
     setLoading(true);
     try {
-      const params = [
-        `search=${encodeURIComponent(search)}`,
-      ];
-
-      if (selectedStatus !== 'All') {
-        params.push(`status=${encodeURIComponent(selectedStatus)}`);
-      }
-      if (selectedTemp !== 'All') {
-        params.push(`heat=${encodeURIComponent(selectedTemp)}`);
-      }
-      if (selectedProjectIds.length > 0) {
-        params.push(`project_ids=${encodeURIComponent(selectedProjectIds.join(','))}`);
-      }
-      if (canUseManagerViews && viewMode === 'mine' && user?.id) {
-        params.push(`assigned_to=${encodeURIComponent(user.id)}`);
-      } else if (viewMode === 'unassigned') {
-        params.push('assigned_to=null');
-      } else if (selectedAssigneeIds.length > 0) {
-        params.push(`assigned_to_ids=${encodeURIComponent(selectedAssigneeIds.join(','))}`);
-      }
-      if (timePeriod !== 'all') {
-        if (timePeriod === 'custom') {
-          const f = new Date(customFrom); f.setHours(0, 0, 0, 0);
-          const t = new Date(customTo); t.setHours(23, 59, 59, 999);
-          params.push(`from=${encodeURIComponent(f.toISOString())}`);
-          params.push(`to=${encodeURIComponent(t.toISOString())}`);
-        } else {
-          const { from, to } = getPeriodRange(timePeriod);
-          params.push(`from=${encodeURIComponent(from)}`);
-          params.push(`to=${encodeURIComponent(to)}`);
-        }
-      }
-
-      const response = await client.get(`/leads?${params.join('&')}`);
+      const params = buildQueryParams(1);
+      const response = await client.get<PaginatedResponse<Lead>>(`/leads?${params.join('&')}`);
       if (response.data.success) {
         setLeads(response.data.data);
+        const pagination: PaginationMeta = response.data.pagination;
+        setTotalRecords(pagination.totalRecords);
+        setHasMore(pagination.hasNext);
+        setPage(1);
       }
     } catch (error) {
       console.error('Fetch leads failed', error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  /**
+   * Fetch next page — appends results for infinite scroll.
+   */
+  const fetchMoreLeads = async () => {
+    if (!hasMore || loadingMore) return;
+    setLoadingMore(true);
+    try {
+      const nextPage = page + 1;
+      const params = buildQueryParams(nextPage);
+      const response = await client.get<PaginatedResponse<Lead>>(`/leads?${params.join('&')}`);
+      if (response.data.success) {
+        setLeads(prev => [...prev, ...response.data.data]);
+        const pagination: PaginationMeta = response.data.pagination;
+        setTotalRecords(pagination.totalRecords);
+        setHasMore(pagination.hasNext);
+        setPage(nextPage);
+      }
+    } catch (error) {
+      console.error('Fetch more leads failed', error);
+    } finally {
+      setLoadingMore(false);
     }
   };
 
@@ -263,6 +311,7 @@ export const LeadListScreen = ({ navigation }: { navigation: any }) => {
   const closeAssign = () => {
     setAssignOpen(false);
     setAssignLead(null);
+    setAssignSearch('');
   };
 
   const assignTargets = React.useMemo(() => {
@@ -280,6 +329,12 @@ export const LeadListScreen = ({ navigation }: { navigation: any }) => {
       return true;
     });
   }, [team, user?.id, user?.name, canAssignLeads]);
+
+  const filteredAssignTargets = React.useMemo(() => {
+    if (!assignSearch.trim()) return assignTargets;
+    const q = assignSearch.toLowerCase();
+    return assignTargets.filter((t: any) => t.name.toLowerCase().includes(q));
+  }, [assignTargets, assignSearch]);
 
   const doAssign = async (targetId: string) => {
     if (!assignLead) return;
@@ -329,7 +384,7 @@ export const LeadListScreen = ({ navigation }: { navigation: any }) => {
           </View>
         ) : null}
         {item.status === 'VISITED' && item.visit_count ? (
-          <Text style={[styles.leadChip, { color: '#0d9488', backgroundColor: '#0d948815', marginTop: 4 }]}>🔍 Visited ({item.visit_count})</Text>
+          <Text style={[styles.leadChip, { color: STATUS_COLORS.VISITED, backgroundColor: hexToRgba(STATUS_COLORS.VISITED, 0.08), marginTop: 4, alignSelf: 'flex-start' }]}>🔍 Visited ({item.visit_count})</Text>
         ) : null}
         {(item.status === 'VISIT_BOOKED' || item.status === 'RE_VISIT') && item.site_visit_at ? (
           <Text style={[styles.leadVisitDate, { color: item.status === 'RE_VISIT' ? '#a855f7' : '#06b6d4' }]}>
@@ -342,7 +397,7 @@ export const LeadListScreen = ({ navigation }: { navigation: any }) => {
           styles.statusBadge,
           {
             borderColor: STATUS_COLORS[item.status] || Colors.border,
-            backgroundColor: (STATUS_COLORS[item.status] || Colors.primary) + '18',
+            backgroundColor: hexToRgba(STATUS_COLORS[item.status] || Colors.primary, 0.09),
           },
         ]}>
           <Text style={[
@@ -367,12 +422,23 @@ export const LeadListScreen = ({ navigation }: { navigation: any }) => {
           <View style={styles.assignCard}>
             <Text style={styles.assignTitle}>Assign Lead</Text>
             <Text style={styles.assignSubtitle}>{assignLead?.name ?? ''}</Text>
+            <TextInput
+              value={assignSearch}
+              onChangeText={setAssignSearch}
+              placeholder="Search team members..."
+              placeholderTextColor={Colors.textSecondary}
+              style={styles.assignSearchInput}
+            />
             <ScrollView style={{ maxHeight: 360 }} showsVerticalScrollIndicator={false}>
-              {assignTargets.map((t: any) => (
-                <TouchableOpacity key={t._id} style={styles.assignRow} onPress={() => doAssign(String(t._id))}>
-                  <Text style={styles.assignRowTxt}>{t.name}</Text>
-                </TouchableOpacity>
-              ))}
+              {filteredAssignTargets.length === 0 ? (
+                <Text style={styles.assignEmptyText}>No team members found</Text>
+              ) : (
+                filteredAssignTargets.map((t: any) => (
+                  <TouchableOpacity key={t._id} style={styles.assignRow} onPress={() => doAssign(String(t._id))}>
+                    <Text style={styles.assignRowTxt}>{t.name}</Text>
+                  </TouchableOpacity>
+                ))
+              )}
             </ScrollView>
             <TouchableOpacity style={styles.assignClose} onPress={closeAssign}>
               <Text style={styles.assignCloseTxt}>Close</Text>
@@ -675,8 +741,24 @@ export const LeadListScreen = ({ navigation }: { navigation: any }) => {
           keyExtractor={(item) => item._id}
           renderItem={renderLeadItem}
           contentContainerStyle={styles.list}
+          onEndReached={fetchMoreLeads}
+          onEndReachedThreshold={0.5}
           refreshControl={
             <RefreshControl refreshing={loading} onRefresh={fetchLeads} tintColor={Colors.primary} />
+          }
+          ListHeaderComponent={
+            totalRecords > 0 ? (
+              <Text style={styles.recordCount}>
+                Showing {leads.length} of {totalRecords} leads
+              </Text>
+            ) : undefined
+          }
+          ListFooterComponent={
+            loadingMore ? (
+              <ActivityIndicator color={Colors.primary} style={{ marginVertical: 16 }} />
+            ) : hasMore || leads.length === 0 ? null : (
+              <Text style={styles.endOfList}>All leads loaded</Text>
+            )
           }
           ListEmptyComponent={
             <Text style={styles.emptyText}>No leads found.</Text>
@@ -978,6 +1060,7 @@ const styles = StyleSheet.create({
     paddingVertical: 2,
     borderRadius: 6,
     overflow: 'hidden',
+    alignSelf: 'flex-start',
   },
   leadVisitDate: {
     fontSize: 12,
@@ -997,6 +1080,7 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     borderWidth: 1,
     borderColor: Colors.border,
+    overflow: 'hidden',
   },
   statusText: {
     color: Colors.textSecondary,
@@ -1007,6 +1091,18 @@ const styles = StyleSheet.create({
     color: Colors.textSecondary,
     textAlign: 'center',
     marginTop: 40,
+  },
+  recordCount: {
+    color: Colors.textSecondary,
+    fontSize: 12,
+    textAlign: 'center',
+    paddingVertical: 8,
+  },
+  endOfList: {
+    color: Colors.textSecondary,
+    fontSize: 12,
+    textAlign: 'center',
+    paddingVertical: 16,
   },
   fab: {
     position: 'absolute',
@@ -1109,5 +1205,23 @@ const styles = StyleSheet.create({
   assignCloseTxt: {
     color: Colors.text,
     fontWeight: '800',
+  },
+  assignSearchInput: {
+    backgroundColor: Colors.background,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 14,
+    color: Colors.text,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    marginBottom: 12,
+  },
+  assignEmptyText: {
+    color: Colors.textSecondary,
+    fontSize: 14,
+    fontStyle: 'italic',
+    textAlign: 'center',
+    paddingVertical: 16,
   },
 });

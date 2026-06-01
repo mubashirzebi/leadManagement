@@ -90,6 +90,8 @@ const LeadSchema: Schema = new Schema({
 
 // Index on mobile and organization_id (not unique to support duplicate leads)
 LeadSchema.index({ mobile: 1, organization_id: 1 });
+// Compound index for paginated lead listing queries scoped by org and sorted by creation date
+LeadSchema.index({ organization_id: 1, created_at: -1 });
 // Index on facebook_lead_id to prevent webhook/cron duplicate overlap
 LeadSchema.index({ facebook_lead_id: 1 }, { sparse: true });
 

@@ -29,3 +29,7 @@ need to add field where staff can add budget and flat configuration, also is he 
 16. want all lead also need filter based on date range like weekly monthly quarterly etc as in dashboard, it should also filtered filtered by whom leads are assign
 
 17. based on excel we should able to load bulk leads
+
+18. seacrh on project add as well as project catelog
+
+19. project and staff member on the dashboard show only 5 top performing by visited number

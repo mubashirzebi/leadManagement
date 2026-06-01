@@ -104,3 +104,18 @@ export interface ProjectStat {
   booked: number;
   visits_today: number;
 }
+
+export interface PaginationMeta {
+  page: number;
+  size: number;
+  totalRecords: number;
+  totalPages: number;
+  hasNext: boolean;
+  hasPrev: boolean;
+}
+
+export interface PaginatedResponse<T> {
+  success: boolean;
+  data: T[];
+  pagination: PaginationMeta;
+}

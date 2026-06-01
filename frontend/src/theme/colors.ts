@@ -22,3 +22,20 @@ export const STATUS_COLORS: Record<string, string> = {
   NOT_INTERESTED: '#ef4444',
   INVALID_NUMBER: '#94a3b8',
 };
+
+/**
+ * Converts a hex color (e.g. "#0d9488") to an rgba() string with the
+ * given alpha value.  This avoids the #RRGGBBAA hex format, which can
+ * be misinterpreted or unsupported on some React Native platforms.
+ *
+ * @param hex  - 6-character hex string, with or without leading "#"
+ * @param alpha - Opacity between 0 and 1 (e.g. 0.09 ≈ 9 %)
+ * @returns     - e.g. "rgba(13, 148, 136, 0.09)"
+ */
+export function hexToRgba(hex: string, alpha: number): string {
+  const clean = hex.replace('#', '');
+  const r = parseInt(clean.substring(0, 2), 16);
+  const g = parseInt(clean.substring(2, 4), 16);
+  const b = parseInt(clean.substring(4, 6), 16);
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}

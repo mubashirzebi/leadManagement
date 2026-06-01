@@ -1,12 +1,13 @@
 import { Request, Response } from 'express';
 import mongoose from 'mongoose';
 import Project from '../models/Project';
+import { parsePagination, buildPaginationMeta } from '../utils/pagination';
 
 interface AuthRequest extends Request {
   user?: { id: string; organization_id: string; role: string };
 }
 
-// GET /api/projects — list projects for the org
+// GET /api/projects — list projects for the org (with search + pagination)
 export const getProjects = async (req: AuthRequest, res: Response) => {
   try {
     const organization_id = req.user?.organization_id;
@@ -19,8 +20,24 @@ export const getProjects = async (req: AuthRequest, res: Response) => {
       filter.status = 'active';
     }
 
-    const projects = await Project.find(filter).sort({ name: 1 });
-    res.json({ success: true, data: projects });
+    // Search by name (case-insensitive)
+    const search = req.query.search as string;
+    if (search && search.trim()) {
+      filter.name = { $regex: search.trim(), $options: 'i' };
+    }
+
+    const pagination = parsePagination(req.query);
+    const total = await Project.countDocuments(filter);
+    const projects = await Project.find(filter)
+      .sort({ name: 1 })
+      .skip(pagination.skip)
+      .limit(pagination.size);
+
+    res.json({
+      success: true,
+      data: projects,
+      pagination: buildPaginationMeta(total, pagination),
+    });
   } catch (error: any) {
     res.status(500).json({ success: false, message: error.message });
   }

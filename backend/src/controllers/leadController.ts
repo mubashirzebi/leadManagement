@@ -6,6 +6,7 @@ import Organization from '../models/Organization';
 import Project from '../models/Project';
 import User from '../models/User';
 import { AuthRequest } from '../middleware/auth';
+import { parsePagination, buildPaginationMeta } from '../utils/pagination';
 
 export const createLead = async (req: AuthRequest, res: Response) => {
   try {
@@ -275,11 +276,14 @@ export const getPerUserDashboardStats = async (req: AuthRequest, res: Response) 
 export const getLeads = async (req: AuthRequest, res: Response) => {
   try {
     const organization_id = req.user?.organization_id;
-    const { status, heat, assigned_to, assigned_to_ids, search, project_id, from, to, page = 1, limit = 20 } = req.query;
+    const { status, heat, assigned_to, assigned_to_ids, search, project_id, from, to } = req.query;
 
     if (!organization_id) {
       return res.status(403).json({ success: false, message: 'No organization linked' });
     }
+
+    // Parse and validate pagination params (defaults: page=1, size=20, max=100)
+    const pagination = parsePagination(req.query as Record<string, any>);
 
     const query: any = { organization_id };
 
@@ -360,13 +364,21 @@ export const getLeads = async (req: AuthRequest, res: Response) => {
       }
     }
 
-    const leads = await Lead.find(query)
-      .populate('assigned_to', '_id name mobile')
-      .sort({ created_at: -1 })
-      .skip((Number(page) - 1) * Number(limit))
-      .limit(Number(limit));
+    // Execute count and paginated query in parallel
+    const [totalRecords, leads] = await Promise.all([
+      Lead.countDocuments(query),
+      Lead.find(query)
+        .populate('assigned_to', '_id name mobile')
+        .sort({ created_at: -1 })
+        .skip(pagination.skip)
+        .limit(pagination.size),
+    ]);
 
-    res.json({ success: true, data: leads });
+    res.json({
+      success: true,
+      data: leads,
+      pagination: buildPaginationMeta(totalRecords, pagination),
+    });
   } catch (error) {
     console.error('[Get Leads Error]:', error);
     res.status(500).json({ success: false, message: 'Server error' });
@@ -540,9 +552,11 @@ export const getLeadLogs = async (req: AuthRequest, res: Response) => {
       return res.status(400).json({ success: false, message: 'Invalid lead ID' });
     }
 
-    const logQuery: any = { 
-      lead_id: new mongoose.Types.ObjectId(id as string), 
-      organization_id 
+    const pagination = parsePagination(req.query as Record<string, any>);
+
+    const logQuery: any = {
+      lead_id: new mongoose.Types.ObjectId(id as string),
+      organization_id
     };
 
     if (req.user?.role === 'staff') {
@@ -552,11 +566,20 @@ export const getLeadLogs = async (req: AuthRequest, res: Response) => {
       }
     }
 
-    const logs = await ActivityLog.find(logQuery)
-      .sort({ created_at: -1 })
-      .populate('user_id', 'name');
+    const [totalRecords, logs] = await Promise.all([
+      ActivityLog.countDocuments(logQuery),
+      ActivityLog.find(logQuery)
+        .sort({ created_at: -1 })
+        .populate('user_id', 'name')
+        .skip(pagination.skip)
+        .limit(pagination.size),
+    ]);
 
-    res.json({ success: true, data: logs });
+    res.json({
+      success: true,
+      data: logs,
+      pagination: buildPaginationMeta(totalRecords, pagination),
+    });
   } catch (error) {
     console.error('[Get Lead Logs Error]:', error);
     res.status(500).json({ success: false, message: 'Server error' });
@@ -575,8 +598,10 @@ export const getOrgLogs = async (req: AuthRequest, res: Response) => {
       return res.status(400).json({ success: false, message: 'Invalid organization ID' });
     }
 
-    const logQuery: any = { 
-      organization_id: new mongoose.Types.ObjectId(organization_id as string) 
+    const pagination = parsePagination(req.query as Record<string, any>);
+
+    const logQuery: any = {
+      organization_id: new mongoose.Types.ObjectId(organization_id as string)
     };
 
     // Staff can only see logs of leads assigned to them
@@ -586,13 +611,21 @@ export const getOrgLogs = async (req: AuthRequest, res: Response) => {
       logQuery.lead_id = { $in: leadIds };
     }
 
-    const logs = await ActivityLog.find(logQuery)
-      .sort({ created_at: -1 })
-      .limit(10)
-      .populate('user_id', 'name')
-      .populate('lead_id', 'name');
+    const [totalRecords, logs] = await Promise.all([
+      ActivityLog.countDocuments(logQuery),
+      ActivityLog.find(logQuery)
+        .sort({ created_at: -1 })
+        .skip(pagination.skip)
+        .limit(pagination.size)
+        .populate('user_id', 'name')
+        .populate('lead_id', 'name'),
+    ]);
 
-    res.json({ success: true, data: logs });
+    res.json({
+      success: true,
+      data: logs,
+      pagination: buildPaginationMeta(totalRecords, pagination),
+    });
   } catch (error) {
     console.error('[Get Org Logs Error]:', error);
     res.status(500).json({ success: false, message: 'Server error' });

@@ -85,6 +85,7 @@ export const DashboardScreen = () => {
   const { user } = useAuth();
   const navigation = useNavigation<any>();
   const isManager = user?.role === 'admin' || user?.role === 'superadmin';
+  const MAX_VISIBLE = 10;
 
   /* ─── Common State ─── */
   const [period, setPeriod] = useState<TimePeriod>('weekly');
@@ -494,25 +495,37 @@ export const DashboardScreen = () => {
       {isManager && (
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Team Performance</Text>
-          {perUser.length > 3 && (
-            <View style={styles.searchContainer}>
-              <TextInput
-                style={styles.searchInput}
-                placeholder="Search team member..."
-                placeholderTextColor={Colors.textSecondary}
-                value={teamSearch}
-                onChangeText={setTeamSearch}
-              />
-              {teamSearch.length > 0 && (
-                <TouchableOpacity onPress={() => setTeamSearch('')} style={styles.searchClear}>
-                  <Text style={styles.searchClearText}>✕</Text>
-                </TouchableOpacity>
-              )}
-            </View>
-          )}
-          {loading && perUser.length === 0 ? null : perUser
-            .filter(u => !teamSearch || u.name.toLowerCase().includes(teamSearch.toLowerCase()))
-            .map(renderUserRow)}
+          <View style={styles.searchContainer}>
+            <TextInput
+              style={styles.searchInput}
+              placeholder="Search team member..."
+              placeholderTextColor={Colors.textSecondary}
+              value={teamSearch}
+              onChangeText={setTeamSearch}
+            />
+            {teamSearch.length > 0 && (
+              <TouchableOpacity onPress={() => setTeamSearch('')} style={styles.searchClear}>
+                <Text style={styles.searchClearText}>✕</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+          {loading && perUser.length === 0 ? null : (() => {
+            const sorted = [...perUser].sort((a, b) => b.total_visits - a.total_visits);
+            const filtered = teamSearch
+              ? sorted.filter(u => u.name.toLowerCase().includes(teamSearch.toLowerCase()))
+              : sorted;
+            const visible = teamSearch ? filtered : filtered.slice(0, MAX_VISIBLE);
+            return (
+              <>
+                {visible.map(renderUserRow)}
+                {!teamSearch && filtered.length > MAX_VISIBLE && (
+                  <Text style={styles.showingHint}>
+                    Showing {MAX_VISIBLE} of {filtered.length} team members. Use search to find more.
+                  </Text>
+                )}
+              </>
+            );
+          })()}
           {!loading && perUser.length === 0 && (
             <View style={styles.placeholderCard}>
               <Text style={styles.placeholderText}>No team members with leads in this period.</Text>
@@ -525,55 +538,67 @@ export const DashboardScreen = () => {
       {projectStats.length > 0 && (
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Project Performance</Text>
-          {projectStats.length > 3 && (
-            <View style={styles.searchContainer}>
-              <TextInput
-                style={styles.searchInput}
-                placeholder="Search project..."
-                placeholderTextColor={Colors.textSecondary}
-                value={projectSearch}
-                onChangeText={setProjectSearch}
-              />
-              {projectSearch.length > 0 && (
-                <TouchableOpacity onPress={() => setProjectSearch('')} style={styles.searchClear}>
-                  <Text style={styles.searchClearText}>✕</Text>
-                </TouchableOpacity>
-              )}
-            </View>
-          )}
-          {projectStats
-            .filter(p => !projectSearch || p.project_name.toLowerCase().includes(projectSearch.toLowerCase()))
-            .map((proj) => (
-            <View key={proj.project_id} style={styles.projectCard}>
-              <Text style={styles.projectCardName}>{proj.project_name}</Text>
-              <View style={styles.projectMetricsRow}>
-                <View style={styles.projectMetric}>
-                  <Text style={[styles.projectMetricValue, { color: Colors.primary }]}>
-                    {proj.total_leads}
+          <View style={styles.searchContainer}>
+            <TextInput
+              style={styles.searchInput}
+              placeholder="Search project..."
+              placeholderTextColor={Colors.textSecondary}
+              value={projectSearch}
+              onChangeText={setProjectSearch}
+            />
+            {projectSearch.length > 0 && (
+              <TouchableOpacity onPress={() => setProjectSearch('')} style={styles.searchClear}>
+                <Text style={styles.searchClearText}>✕</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+          {(() => {
+            const sorted = [...projectStats].sort((a, b) => b.visited - a.visited);
+            const filtered = projectSearch
+              ? sorted.filter(p => p.project_name.toLowerCase().includes(projectSearch.toLowerCase()))
+              : sorted;
+            const visible = projectSearch ? filtered : filtered.slice(0, MAX_VISIBLE);
+            return (
+              <>
+                {visible.map((proj) => (
+                  <View key={proj.project_id} style={styles.projectCard}>
+                    <Text style={styles.projectCardName}>{proj.project_name}</Text>
+                    <View style={styles.projectMetricsRow}>
+                      <View style={styles.projectMetric}>
+                        <Text style={[styles.projectMetricValue, { color: Colors.primary }]}>
+                          {proj.total_leads}
+                        </Text>
+                        <Text style={styles.projectMetricLabel}>Leads</Text>
+                      </View>
+                      <View style={styles.projectMetric}>
+                        <Text style={[styles.projectMetricValue, { color: '#0d9488' }]}>
+                          {proj.visited}
+                        </Text>
+                        <Text style={styles.projectMetricLabel}>Visited</Text>
+                      </View>
+                      <View style={styles.projectMetric}>
+                        <Text style={[styles.projectMetricValue, { color: Colors.success }]}>
+                          {proj.booked}
+                        </Text>
+                        <Text style={styles.projectMetricLabel}>Booked</Text>
+                      </View>
+                      <View style={styles.projectMetric}>
+                        <Text style={[styles.projectMetricValue, { color: '#06b6d4' }]}>
+                          {proj.visits_today}
+                        </Text>
+                        <Text style={styles.projectMetricLabel}>Today</Text>
+                      </View>
+                    </View>
+                  </View>
+                ))}
+                {!projectSearch && filtered.length > MAX_VISIBLE && (
+                  <Text style={styles.showingHint}>
+                    Showing {MAX_VISIBLE} of {filtered.length} projects. Use search to find more.
                   </Text>
-                  <Text style={styles.projectMetricLabel}>Leads</Text>
-                </View>
-                <View style={styles.projectMetric}>
-                  <Text style={[styles.projectMetricValue, { color: '#0d9488' }]}>
-                    {proj.visited}
-                  </Text>
-                  <Text style={styles.projectMetricLabel}>Visited</Text>
-                </View>
-                <View style={styles.projectMetric}>
-                  <Text style={[styles.projectMetricValue, { color: Colors.success }]}>
-                    {proj.booked}
-                  </Text>
-                  <Text style={styles.projectMetricLabel}>Booked</Text>
-                </View>
-                <View style={styles.projectMetric}>
-                  <Text style={[styles.projectMetricValue, { color: '#06b6d4' }]}>
-                    {proj.visits_today}
-                  </Text>
-                  <Text style={styles.projectMetricLabel}>Today</Text>
-                </View>
-              </View>
-            </View>
-          ))}
+                )}
+              </>
+            );
+          })()}
           {!loading && projectStats.length === 0 && (
             <View style={styles.placeholderCard}>
               <Text style={styles.placeholderText}>No project data in this period.</Text>
@@ -885,5 +910,12 @@ const styles = StyleSheet.create({
     color: Colors.textSecondary,
     fontSize: 14,
     fontWeight: '700',
+  },
+  showingHint: {
+    color: Colors.textSecondary,
+    fontSize: 12,
+    fontStyle: 'italic',
+    textAlign: 'center',
+    paddingVertical: 12,
   },
 });

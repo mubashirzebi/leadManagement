@@ -16,7 +16,7 @@ import DateTimePicker from '@react-native-community/datetimepicker';
 import { Colors } from '../theme/colors';
 import client from '../api/client';
 import { useAuth } from '../context/AuthContext';
-import { Lead, ActivityLog, Staff, Project } from '../types';
+import { Lead, ActivityLog, Project } from '../types';
 import { ProjectPickerModal } from '../components/ProjectPickerModal';
 import { MultiProjectPickerModal } from '../components/MultiProjectPickerModal';
 import { formatStatusLabel } from '../utils/statusUtils';
@@ -67,7 +67,6 @@ const getStatusMeta = (status: Lead['status']): { label: string; color: string; 
 export const LeadDetailScreen = ({ route, navigation }: { route: RouteParams; navigation: NavigationProp }) => {
   const [lead, setLead] = React.useState<Lead>(route.params.lead);
   const [logs, setLogs] = React.useState<ActivityLog[]>([]);
-  const [staff, setStaff] = React.useState<Staff[]>([]);
   const [updating, setUpdating] = React.useState(false);
   const [refreshing, setRefreshing] = React.useState(false);
   const [activeTab, setActiveTab] = React.useState<'actions' | 'history' | 'visits'>('actions');
@@ -109,9 +108,7 @@ export const LeadDetailScreen = ({ route, navigation }: { route: RouteParams; na
   const [rescheduleOpen, setRescheduleOpen] = React.useState(false);
   const [rescheduleDate, setRescheduleDate] = React.useState<Date>(() => new Date());
   const [rescheduleNativePickerMode, setRescheduleNativePickerMode] = React.useState<null | 'date' | 'time'>(null);
-  
   const { user } = useAuth();
-  const canAssignLeads = user?.role === 'admin' || user?.role === 'superadmin';
   const isVisitStatus = lead.status === 'VISIT_BOOKED' || lead.status === 'RE_VISIT';
   const hasVisited = lead.visit_count && lead.visit_count > 0;
   const statusMeta = getStatusMeta(lead.status);
@@ -123,16 +120,9 @@ export const LeadDetailScreen = ({ route, navigation }: { route: RouteParams; na
     } catch (error) { console.error('Fetch lead failed', error); }
   }, [route.params.lead._id]);
 
-  const fetchStaff = useCallback(async () => {
-    try {
-      const response = await client.get('/users');
-      if (response.data.success) setStaff(response.data.data);
-    } catch (error) { console.error('Fetch staff failed', error); }
-  }, []);
-
   const fetchLogs = useCallback(async () => {
     try {
-      const response = await client.get(`/leads/${route.params.lead._id}/logs`);
+      const response = await client.get(`/leads/${route.params.lead._id}/logs?page=1&limit=50`);
       if (response.data.success) setLogs(response.data.data);
     } catch (error) { console.error('Fetch logs failed', error); }
   }, [route.params.lead._id]);
@@ -146,8 +136,7 @@ export const LeadDetailScreen = ({ route, navigation }: { route: RouteParams; na
   React.useEffect(() => {
     fetchLead();
     fetchLogs();
-    if (canAssignLeads) fetchStaff();
-  }, [canAssignLeads, fetchLead, fetchLogs, fetchStaff]);
+  }, [fetchLead, fetchLogs]);
 
   const openWhatsApp = useCallback(() => {
     const digits = lead.mobile.replace(/\D/g, '');
@@ -158,24 +147,6 @@ export const LeadDetailScreen = ({ route, navigation }: { route: RouteParams; na
   const openCall = useCallback(() => {
     Linking.openURL(`tel:${lead.mobile}`).catch(() => Alert.alert('Error', 'Could not open phone dialer'));
   }, [lead.mobile]);
-
-  const assignableUsers = React.useMemo(() => {
-    const users: { _id: string; name: string; mobile: string }[] = [];
-    if (canAssignLeads) users.push({ _id: 'null', name: 'Unassigned', mobile: '' });
-    for (const member of staff) users.push(member);
-    if (canAssignLeads && user?.id && !users.some((member) => member._id === user.id)) {
-      users.push({ _id: user.id, name: `${user.name} (Me)`, mobile: user.mobile });
-    }
-    const seen = new Set<string>();
-    return users.filter((u) => { const id = String(u._id); if (seen.has(id)) return false; seen.add(id); return true; });
-  }, [staff, canAssignLeads, user?.id, user?.name, user?.mobile]);
-
-  const isAssignedTo = (userId: string) => {
-    const assigned = lead.assigned_to;
-    if (userId === 'null') return assigned === null || assigned === undefined;
-    if (typeof assigned === 'string') return assigned === userId;
-    return assigned?._id === userId;
-  };
 
   const statuses: Lead['status'][] = ['NEW', 'CALLBACK', 'INTERESTED', 'VISIT_BOOKED', 'VISITED', 'RE_VISIT', 'BOOKED', 'NOT_INTERESTED', 'INVALID_NUMBER'];
   const heats: Lead['heat'][] = ['HOT', 'WARM', 'COLD'];
@@ -1066,22 +1037,7 @@ export const LeadDetailScreen = ({ route, navigation }: { route: RouteParams; na
         {updating && <ActivityIndicator color={Colors.primary} style={{ marginTop: 16 }} />}
       </View>
       )}
-
-      {canAssignLeads && (
-        <View style={[styles.actionSection, { marginTop: -20 }]}>
-          <Text style={styles.sectionTitle}>Assign Lead</Text>
-          <View style={styles.statusGrid}>
-            {assignableUsers.map((s) => (
-              <TouchableOpacity key={s._id} onPress={() => handleUpdate({ assigned_to: s._id === 'null' ? null : s._id })} disabled={updating}
-                style={[styles.statusButton, isAssignedTo(s._id) && styles.activeStatusButton]}>
-                <Text style={[styles.statusButtonText, isAssignedTo(s._id) && styles.activeStatusButtonText]}>{s.name}</Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-        </View>
-      )}
-
-      {(user?.role === 'admin' || user?.role === 'superadmin') && (
+      {activeTab === 'actions' && (user?.role === 'admin' || user?.role === 'superadmin') && (
         <View style={[styles.actionSection, { marginTop: -20 }]}>
           <Text style={styles.sectionTitle}>Duplicate Management</Text>
           <View style={styles.statusGrid}>

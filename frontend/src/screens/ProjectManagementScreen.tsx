@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput,
   Alert, Modal, ActivityIndicator, FlatList
@@ -6,7 +6,7 @@ import {
 import { useAuth } from '../context/AuthContext';
 import client from '../api/client';
 import { Colors } from '../theme/colors';
-import { Project } from '../types';
+import { Project, PaginationMeta } from '../types';
 
 interface ConfigDraft {
   type: string;
@@ -14,14 +14,23 @@ interface ConfigDraft {
   price: string;
 }
 
+const PAGE_SIZE = 20;
+
 export const ProjectManagementScreen = ({ navigation }: any) => {
   const { user } = useAuth();
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [showInactive, setShowInactive] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
   const [editingProject, setEditingProject] = useState<Project | null>(null);
   const [saving, setSaving] = useState(false);
+
+  // Search + pagination
+  const [searchText, setSearchText] = useState('');
+  const [page, setPage] = useState(1);
+  const [pagination, setPagination] = useState<PaginationMeta | null>(null);
+  const searchTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Form state
   const [formName, setFormName] = useState('');
@@ -32,20 +41,65 @@ export const ProjectManagementScreen = ({ navigation }: any) => {
 
   const canManage = user?.role === 'admin' || user?.role === 'superadmin';
 
-  const fetchProjects = useCallback(async () => {
+  const fetchProjects = useCallback(async (pageNum: number = 1, search: string = '', append: boolean = false) => {
     try {
-      setLoading(true);
-      const url = showInactive ? '/projects' : '/projects?status=active';
-      const res = await client.get(url);
-      if (res.data.success) setProjects(res.data.data);
+      if (append) {
+        setLoadingMore(true);
+      } else {
+        setLoading(true);
+      }
+
+      const params = new URLSearchParams();
+      if (!showInactive) params.append('status', 'active');
+      params.append('page', String(pageNum));
+      params.append('limit', String(PAGE_SIZE));
+      if (search.trim()) params.append('search', search.trim());
+
+      const res = await client.get(`/projects?${params.toString()}`);
+
+      if (res.data.success) {
+        if (append) {
+          setProjects(prev => [...prev, ...res.data.data]);
+        } else {
+          setProjects(res.data.data);
+        }
+        setPagination(res.data.pagination || null);
+        setPage(pageNum);
+      }
     } catch (err) {
       Alert.alert('Error', 'Failed to load projects');
     } finally {
       setLoading(false);
+      setLoadingMore(false);
     }
   }, [showInactive]);
 
-  useEffect(() => { fetchProjects(); }, [fetchProjects]);
+  // Initial fetch + on status toggle
+  useEffect(() => {
+    fetchProjects(1, searchText);
+  }, [fetchProjects]);
+
+  // Debounced search
+  const handleSearchChange = (text: string) => {
+    setSearchText(text);
+    if (searchTimeout.current) clearTimeout(searchTimeout.current);
+    searchTimeout.current = setTimeout(() => {
+      fetchProjects(1, text);
+    }, 300);
+  };
+
+  // Clear search
+  const clearSearch = () => {
+    setSearchText('');
+    if (searchTimeout.current) clearTimeout(searchTimeout.current);
+    fetchProjects(1, '');
+  };
+
+  // Load next page
+  const handleLoadMore = () => {
+    if (loadingMore || !pagination?.hasNext) return;
+    fetchProjects(page + 1, searchText, true);
+  };
 
   const openAddModal = () => {
     setEditingProject(null);
@@ -219,6 +273,22 @@ export const ProjectManagementScreen = ({ navigation }: any) => {
         )}
       </View>
 
+      {/* Search Bar */}
+      <View style={styles.searchContainer}>
+        <TextInput
+          style={styles.searchInput}
+          placeholder="Search projects..."
+          placeholderTextColor={Colors.textSecondary}
+          value={searchText}
+          onChangeText={handleSearchChange}
+        />
+        {searchText.length > 0 && (
+          <TouchableOpacity onPress={clearSearch} style={styles.searchClear}>
+            <Text style={styles.searchClearText}>✕</Text>
+          </TouchableOpacity>
+        )}
+      </View>
+
       {/* Project List */}
       {loading ? (
         <ActivityIndicator size="large" color={Colors.primary} style={{ marginTop: 40 }} />
@@ -228,9 +298,20 @@ export const ProjectManagementScreen = ({ navigation }: any) => {
           keyExtractor={(item) => item._id}
           renderItem={renderProjectItem}
           contentContainerStyle={styles.listContent}
+          onEndReached={handleLoadMore}
+          onEndReachedThreshold={0.3}
+          ListFooterComponent={
+            loadingMore ? (
+              <ActivityIndicator size="small" color={Colors.primary} style={{ paddingVertical: 16 }} />
+            ) : pagination && pagination.totalRecords > PAGE_SIZE ? (
+              <Text style={styles.paginationHint}>
+                Showing {projects.length} of {pagination.totalRecords} projects
+              </Text>
+            ) : null
+          }
           ListEmptyComponent={
             <Text style={styles.emptyText}>
-              {showInactive ? 'No projects found.' : 'No active projects. Tap "Showing All" to see inactive ones.'}
+              {searchText ? 'No projects match your search.' : showInactive ? 'No projects found.' : 'No active projects. Tap "Showing All" to see inactive ones.'}
             </Text>
           }
         />
@@ -443,6 +524,26 @@ const styles = StyleSheet.create({
   configChipType: { color: Colors.primary, fontSize: 12, fontWeight: '800' },
   configChipSize: { color: Colors.textSecondary, fontSize: 11, fontWeight: '600' },
   configChipPrice: { color: Colors.textSecondary, fontSize: 11, fontWeight: '600' },
+  searchContainer: {
+    flexDirection: 'row', alignItems: 'center',
+    marginHorizontal: 20, marginBottom: 12,
+    backgroundColor: Colors.surface,
+    borderRadius: 10, borderWidth: 1, borderColor: Colors.border,
+  },
+  searchInput: {
+    flex: 1, paddingHorizontal: 12, paddingVertical: 10,
+    fontSize: 14, color: Colors.text,
+  },
+  searchClear: {
+    paddingHorizontal: 12, paddingVertical: 10,
+  },
+  searchClearText: {
+    color: Colors.textSecondary, fontSize: 14, fontWeight: '700',
+  },
+  paginationHint: {
+    color: Colors.textSecondary, fontSize: 12, fontStyle: 'italic',
+    textAlign: 'center', paddingVertical: 12,
+  },
   emptyText: { color: Colors.textSecondary, textAlign: 'center', marginTop: 40, fontSize: 14 },
 
   // Modal styles
